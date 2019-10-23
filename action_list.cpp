@@ -33,6 +33,7 @@
 #include <iostream>
 
 static bool recursive_find_mobility_control_info(const pt::ptree &tree);
+static void print_time_of_mobility_control_info(pt::ptree &&tree, Job &&job);
 static void print_timestamp(pt::ptree &&tree, long seq_num);
 
 static bool is_rrc_ota_packet(const pt::ptree &tree, const Job &job);
@@ -54,14 +55,14 @@ void initialize_action_list() {
     // Below is an example.
     // Predicate: find the "mobilityControlInfo is present" string recursively.
     // Action: print the timestamp of this packet.
-    // g_action_list.push_back(
-    //     {
-    //         [](const pt::ptree &tree, const Job &job) {
-    //             return recursive_find_mobility_control_info(tree);
-    //         },
-    //         print_timestamp
-    //     }
-    // );
+    g_action_list.push_back(
+        {
+            [](const pt::ptree &tree, const Job &job) {
+                return recursive_find_mobility_control_info(tree);
+            },
+            print_time_of_mobility_control_info
+        }
+    );
 
     g_action_list.push_back(
         {
@@ -106,6 +107,22 @@ static void print_timestamp(pt::ptree &&tree, long seq_num) {
                 auto timestamp = i.second.data();
                 insert_ordered_task(seq_num, [timestamp] {
                     (*g_output) << timestamp << std::endl;
+                });
+                break;
+            }
+        }
+    }
+}
+
+
+static void print_time_of_mobility_control_info(pt::ptree &&tree, Job &&job) {
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
+                auto timestamp = i.second.data();
+                insert_ordered_task(job.job_num, [timestamp] {
+                    (*g_output) << "[" << timestamp
+                                << "] [mobilityControlInfo] $ " << std::endl;
                 });
                 break;
             }
@@ -445,25 +462,25 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
          measurement_reports, warning_message] {
             std::cerr << warning_message;
             for (auto &i : removed_config_ids) {
-                std::cout << "[" << timestamp
+                (*g_output) << "[" << timestamp
                 << "] [reportConfigToRemoveList] $ " << i << std::endl;
             }
             for (auto &i : removed_measure_ids) {
-                std::cout << "[" << timestamp
+                (*g_output) << "[" << timestamp
                 << "] [measIdToRemoveList] $ " << i << std::endl;
             }
             for (auto i = 0; i < added_config_ids.size(); ++i) {
-                std::cout << "[" << timestamp
+                (*g_output) << "[" << timestamp
                 << "] [ReportConfigToAddMod] $ " << added_config_ids[i]
                 << ", " << added_event_types[i] << std::endl;
             }
             for (auto i = 0; i < added_measure_ids.size(); ++i) {
-                std::cout << "[" << timestamp
+                (*g_output) << "[" << timestamp
                 << "] [MeasIdToAddMod] $ " << added_measure_ids[i] << ", "
                 << report_to_measure_ids[i] << std::endl;
             }
             for (auto &i : measurement_reports) {
-                std::cout << "[" << timestamp
+                (*g_output) << "[" << timestamp
                 << "] [measResults] $ " << i << std::endl;
         }
     });
