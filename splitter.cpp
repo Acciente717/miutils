@@ -26,6 +26,7 @@
 #include "global_states.hpp"
 #include "exceptions.hpp"
 #include "parameters.hpp"
+#include "macros.hpp"
 #include <iostream>
 #include <fstream>
 #include <thread>
@@ -79,6 +80,13 @@ static std::atomic<bool> g_early_terminating(false);
 /// The index number of the current file being worked on, i.e. the index
 /// to the `g_inputs` vector.
 static int g_current_file_idx = 0;
+
+/// Current line number of the file being processed.
+static long g_current_line_number = 1;
+
+/// The line number that corresponds to the start of the XML string
+/// currently being processed.
+static long g_start_line_number = 0;
 
 /// Provide the input file name and start running the lexical splitter.
 void start_splitter() {
@@ -144,12 +152,18 @@ static void smain_splitter() {
             }
 
             // Otherwize, send it to the exetractors.
-            produce_job_to_extractor({job_num++, std::move(xml_subtree)});
+            produce_job_to_extractor({
+                job_num++,
+                std::move(xml_subtree),
+                g_input_file_names[g_current_file_idx],
+                g_start_line_number,
+                g_current_line_number
+            });
         }
 
         // If we are not exiting prematurely, we should notify the main thread
         // that the splitter has finished all its work.
-        if (!g_early_terminating) {
+        if_unlikely (!g_early_terminating) {
             notify_main_thread();
         }
     } catch (...) {
@@ -283,8 +297,9 @@ std::string next_ptree_string() {
     auto &file = g_inputs[g_current_file_idx];
 
     // Skip characters until we see an "<".
-    while (buffered_getchar(c, *file) && c != '<')
-        continue;
+    while (buffered_getchar(c, *file) && c != '<') {
+        if (c == '\n') ++g_current_line_number;
+    }
 
     // If the previous loop stopped because we saw "<", search for the
     // matching ending tag and returns the string containing everyting between
@@ -294,6 +309,9 @@ std::string next_ptree_string() {
     if (c == '<') {
         // Set the state to the starting state.
         MachineState state = MachineState::AngleClosed;
+
+        // Update starting line number of current XML string.
+        g_start_line_number = g_current_line_number;
 
         // Run the finite state machine.
         while (true) {
@@ -327,8 +345,12 @@ std::string next_ptree_string() {
             // Read the next character in the file. If we fail to read the next
             // character, the file is corrupted. We defer to the extractor to
             // throw an exception.
-            if (!buffered_getchar(c, *file)) {
+            if_unlikely (!buffered_getchar(c, *file)) {
                 break;
+            }
+
+            if (c == '\n') {
+                ++g_current_line_number;
             }
         }
         return tree;
@@ -336,6 +358,7 @@ std::string next_ptree_string() {
     // Otherwise, we have finished this file. Go to the next.
     } else {
         ++g_current_file_idx;
+        g_current_line_number = 1;
         return next_ptree_string();
     }
 }

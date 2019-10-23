@@ -31,6 +31,9 @@ enum class MainState {
 /// Parameter: the number of extractor thread.
 extern int g_thread_num;
 
+/// Parameter: input file names.
+extern std::vector<std::string> g_input_file_names;
+
 /// Parameter: input file streams.
 extern std::vector< std::unique_ptr<std::istream,
                     std::function<void(std::istream*)>> > g_inputs;

@@ -4,6 +4,9 @@
 /// Parameter: the number of extractor thread
 int g_thread_num = 4;
 
+/// Parameter: input file names.
+std::vector<std::string> g_input_file_names;
+
 /// Parameter: input file streams.
 std::vector< std::unique_ptr<std::istream,
              std::function<void(std::istream*)>> > g_inputs;

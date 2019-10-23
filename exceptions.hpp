@@ -17,4 +17,10 @@ class ArgumentError : public std::runtime_error {
         : std::runtime_error(what_arg) {}
 };
 
+class UnexpectedCase : public std::runtime_error {
+ public:
+    explicit UnexpectedCase(const std::string &what_arg)
+        : std::runtime_error(what_arg) {}
+};
+
 #endif  // EXCEPTIONS_HPP_

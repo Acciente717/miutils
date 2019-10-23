@@ -8,11 +8,13 @@
 
 namespace pt = boost::property_tree;
 
+class Job;
+
 /// A pair of functions. The predicate function will be called first.
 /// If it yields true, the action function will then be called.
 struct ConditionalAction {
-    std::function<bool(const pt::ptree &, long seq_num)> predicate;
-    std::function<void(pt::ptree &&, long seq_num)> action;
+    std::function<bool(const pt::ptree &, const Job &)> predicate;
+    std::function<void(pt::ptree &&, Job &&)> action;
 };
 
 using ActionList = std::vector<ConditionalAction>;

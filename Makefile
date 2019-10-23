@@ -1,9 +1,9 @@
 all: xmlparser
 
-action_list: action_list.hpp in_order_executor.hpp global_states.hpp exceptions.hpp parameters.hpp action_list.cpp
+action_list: action_list.hpp in_order_executor.hpp global_states.hpp exceptions.hpp parameters.hpp action_list.cpp macros.hpp extractor.hpp
 	g++ -std=c++14 -O2 -c -o obj/action_list.o action_list.cpp
 
-extractor: extractor.hpp action_list.hpp global_states.hpp exceptions.hpp parameters.hpp extractor.cpp
+extractor: extractor.hpp action_list.hpp global_states.hpp exceptions.hpp parameters.hpp extractor.cpp macros.hpp
 	g++ -std=c++14 -O2 -c -o obj/extractor.o extractor.cpp
 
 global_states: global_states.hpp global_states.cpp
@@ -15,7 +15,7 @@ in_order_executor: in_order_executor.hpp global_states.hpp exceptions.hpp in_ord
 main: action_list.hpp extractor.hpp splitter.hpp in_order_executor.hpp global_states.hpp exceptions.hpp parameters.hpp main.cpp
 	g++ -std=c++14 -O2 -c -o obj/main.o main.cpp
 
-splitter: splitter.hpp extractor.hpp global_states.hpp exceptions.hpp parameters.hpp splitter.cpp
+splitter: splitter.hpp extractor.hpp global_states.hpp exceptions.hpp parameters.hpp splitter.cpp macros.hpp
 	g++ -std=c++14 -O2 -c -o obj/splitter.o splitter.cpp
 
 xmlparser: action_list extractor global_states in_order_executor splitter main

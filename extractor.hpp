@@ -10,6 +10,14 @@ struct Job {
     long job_num;
     /// The XML text string.
     std::string xml_string;
+    /// The input file name.
+    std::string file_name;
+    /// The line number corresponding to the start of the
+    /// XML string in the input file.
+    long start_line_number;
+    /// The line number corresponding to the end of the
+    /// XML string in the input file.
+    long end_line_number;
 };
 
 /// Start the extractor threads. The number of extractor threads will

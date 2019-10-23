@@ -19,6 +19,7 @@
 #include "global_states.hpp"
 #include "exceptions.hpp"
 #include "parameters.hpp"
+#include "macros.hpp"
 #include <queue>
 #include <mutex>
 #include <vector>
@@ -98,7 +99,7 @@ void produce_job_to_extractor(Job job) {
 
     // If the splitter, which is the producer of all extractors, is set
     // to be finished execution, then this is an error.
-    if (g_splitter_finished) {
+    if_unlikely (g_splitter_finished) {
         throw ProgramBug(
             "The splitter has been marked finished. However it is still "
             "producing new jobs to the extractors."
@@ -126,7 +127,7 @@ static void notify_main_thread() {
     // If the main state is Error, leave it untouch.
     // If the main state is a value other than SplitterFinished or Error,
     // it is a bug of the program and we should raise an exception.
-    } else if (g_main_state != MainState::Error) {
+    } else if_unlikely (g_main_state != MainState::Error) {
         throw ProgramBug(
             "All extractors have just finished execution. "
             "The main state should be either SplitterFinished "
@@ -207,8 +208,8 @@ static void take_actions_on_input(Job job) {
     for (auto &i : g_action_list) {
         // If we find a predicate function yields true on the
         // input, take according action.
-        if (i.predicate(tree, job.job_num)) {
-            i.action(std::move(tree), job.job_num);
+        if (i.predicate(tree, job)) {
+            i.action(std::move(tree), std::move(job));
             return;
         }
     }

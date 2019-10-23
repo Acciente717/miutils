@@ -199,6 +199,7 @@ void parse_option(int argc, char **argv) {
                 );
             }
             g_inputs.emplace_back(std::move(file));
+            g_input_file_names.emplace_back(i);
         }
     /// If we have no input argument, set the stdin as the only input file.
     } else {
@@ -208,6 +209,7 @@ void parse_option(int argc, char **argv) {
             [](std::istream *p) {}
         );
         g_inputs.emplace_back(std::move(file));
+        g_input_file_names.emplace_back("stdin");
     }
 
     /// If we have an output argument, open the file and store it to the
@@ -242,6 +244,9 @@ int main(int argc, char **argv) {
         std::ios::sync_with_stdio(false);
         parse_option(argc, argv);
         smain();
+    } catch (UnexpectedCase &e) {
+        show_exception_message(e);
+        return 1;
     } catch (ArgumentError &e) {
         show_exception_message(e);
         return 1;
