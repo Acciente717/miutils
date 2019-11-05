@@ -42,6 +42,10 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job);
 static bool is_rrc_serv_cell_info_packet(const pt::ptree &tree, const Job &job);
 static void extract_rrc_serv_cell_info_packet(pt::ptree &&tree, Job &&job);
 
+static bool is_pdcp_cipher_data_pdu_packet(
+    const pt::ptree &tree, const Job &job);
+static void extract_pdcp_cipher_data_pdu_packet(pt::ptree &&tree, Job &&job);
+
 /// The list storing all `ConditionalAction`s.
 ActionList g_action_list;
 
@@ -78,6 +82,12 @@ void initialize_action_list() {
             is_rrc_serv_cell_info_packet, extract_rrc_serv_cell_info_packet
         }
     );
+
+    // g_action_list.push_back(
+    //   {
+    //       is_pdcp_cipher_data_pdu_packet, extract_pdcp_cipher_data_pdu_packet
+    //   }
+    // );
 
     // Predicate: always true
     // Action: do nothing
@@ -630,6 +640,104 @@ static void extract_rrc_serv_cell_info_packet(
                          << "Uplink bandwidth: " << ul_bandwidth << ", "
                          << "Cell Identity: " << cell_identity << ", "
                          << "TAC: " << tracking_area_code << std::endl;
+        }
+    );
+}
+
+/// Return true if and only if the tree has the following structure:
+/// <dm_log_packet>
+///     ...
+///     <pair key="type_id">LTE_PDCP_UL_Cipher_Data_PDU</pair>
+///     ...
+/// <dm_log_packet>
+/// or
+/// <dm_log_packet>
+///     ...
+///     <pair key="type_id">LTE_PDCP_DL_Cipher_Data_PDU</pair>
+///     ...
+/// <dm_log_packet>
+static bool is_pdcp_cipher_data_pdu_packet(
+    const pt::ptree &tree, const Job &job) {
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
+                && (i.second.data() == "LTE_PDCP_UL_Cipher_Data_PDU"
+                    || i.second.data() == "LTE_PDCP_DL_Cipher_Data_PDU")) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// This function extracts PDU sizes from
+/// LTE_PDCP_UL_Cipher_Data_PDU or LTE_PDCP_DL_Cipher_Data_PDU packets.
+/// For downlink packets, it looks like below. (XXX is the extracted field.)
+/// <dm_log_packet>
+///     <pair key="type_id">LTE_PDCP_DL_Cipher_Data_PDU</pair>
+///         ...
+///         <pair key="PDU Size">XXX</pair>
+///         ...
+/// </dm_log_packet>
+static void extract_pdcp_cipher_data_pdu_packet(
+    pt::ptree &&tree, Job &&job) {
+    std::string timestamp = "[unknown time]";
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
+                timestamp = i.second.data();
+                break;
+            }
+        }
+    }
+
+    // Extract uplink PDCP PDU size.
+    std::vector<std::string> ul_pdu_sizes;
+    {
+        auto &&pdu_packet_list = locate_subtree_with_attribute(
+            tree, "key", "PDCPUL CIPH DATA"
+        );
+        for (auto pdu_packets : pdu_packet_list) {
+            auto &&sizes = locate_subtree_with_attribute(
+                *pdu_packets, "key", "PDU Size"
+            );
+            for (auto size : sizes) {
+                ul_pdu_sizes.emplace_back(size->data());
+            }
+        }
+    }
+
+    // Extract downlink PDCP PDU size.
+    std::vector<std::string> dl_pdu_sizes;
+    {
+        auto &&pdu_packet_list = locate_subtree_with_attribute(
+            tree, "key", "PDCPUL CIPH DATA"
+        );
+        for (auto pdu_packets : pdu_packet_list) {
+            auto &&sizes = locate_subtree_with_attribute(
+                *pdu_packets, "key", "PDU Size"
+            );
+            for (auto size : sizes) {
+                dl_pdu_sizes.emplace_back(size->data());
+            }
+        }
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [timestamp = std::move(timestamp),
+         ul_pdu_sizes = std::move(ul_pdu_sizes),
+         dl_pdu_sizes = std::move(dl_pdu_sizes)] {
+             for (const auto &i : ul_pdu_sizes) {
+                    (*g_output) << "[" << timestamp
+                         << "] [LTE_PDCP_UL_Cipher_Data_PDU] $ "
+                         << "PDU Size: " << i << std::endl;
+             }
+             for (const auto &i : dl_pdu_sizes) {
+                    (*g_output) << "[" << timestamp
+                         << "] [LTE_PDCP_DL_Cipher_Data_PDU] $ "
+                         << "PDU Size: " << i << std::endl;
+             }
         }
     );
 }
