@@ -27,6 +27,9 @@ MainState g_main_state = MainState::Initializing;
 /// The condition variable used to notify the change of main state.
 std::condition_variable g_main_state_change_cv;
 
+/// The timestamp of the last PDCP packet sent or received.
+std::string g_last_pdcp_packet_timestamp = "unknown";
+
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception
 /// pointer.

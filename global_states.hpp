@@ -54,6 +54,9 @@ extern MainState g_main_state;
 /// The condition variable used to notify the change of main state.
 extern std::condition_variable g_main_state_change_cv;
 
+/// The timestamp of the last PDCP packet sent or received.
+extern std::string g_last_pdcp_packet_timestamp;
+
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception
 /// pointer.

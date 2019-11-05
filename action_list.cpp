@@ -44,6 +44,8 @@ static void extract_rrc_serv_cell_info_packet(pt::ptree &&tree, Job &&job);
 
 static bool is_pdcp_cipher_data_pdu_packet(
     const pt::ptree &tree, const Job &job);
+static void update_pdcp_cipher_data_pdu_packet_timestamp(
+    pt::ptree &&tree, Job &&job);
 static void extract_pdcp_cipher_data_pdu_packet(pt::ptree &&tree, Job &&job);
 
 /// The list storing all `ConditionalAction`s.
@@ -83,11 +85,15 @@ void initialize_action_list() {
         }
     );
 
-    // g_action_list.push_back(
+    g_action_list.push_back(
     //   {
     //       is_pdcp_cipher_data_pdu_packet, extract_pdcp_cipher_data_pdu_packet
     //   }
-    // );
+        {
+            is_pdcp_cipher_data_pdu_packet,
+            update_pdcp_cipher_data_pdu_packet_timestamp
+        }
+    );
 
     // Predicate: always true
     // Action: do nothing
@@ -141,7 +147,10 @@ static void print_time_of_mobility_control_info(pt::ptree &&tree, Job &&job) {
                 auto timestamp = i.second.data();
                 insert_ordered_task(job.job_num, [timestamp] {
                     (*g_output) << "[" << timestamp
-                                << "] [mobilityControlInfo] $ " << std::endl;
+                                << "] [mobilityControlInfo] $ "
+                                << "LastPDCPPacketTimestamp: "
+                                << g_last_pdcp_packet_timestamp
+                                << std::endl;
                 });
                 break;
             }
@@ -243,7 +252,7 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
     std::string warning_message;
 
     // Extract the timestamp.
-    std::string timestamp = "[unknown time]";
+    std::string timestamp = "not available";
     for (const auto &i : tree.get_child("dm_log_packet")) {
         if (i.first == "pair") {
             if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
@@ -550,7 +559,7 @@ static bool is_rrc_serv_cell_info_packet(
 /// </dm_log_packet>
 static void extract_rrc_serv_cell_info_packet(
     pt::ptree &&tree, Job &&job) {
-    std::string timestamp = "[unknown time]";
+    std::string timestamp = "not available";
     std::string cell_id, dl_freq, ul_freq;
     std::string dl_bandwidth, ul_bandwidth;
     std::string cell_identity, tracking_area_code;
@@ -670,7 +679,34 @@ static bool is_pdcp_cipher_data_pdu_packet(
     return false;
 }
 
-/// This function extracts PDU sizes from
+/// This function extracts and update the global string containing the
+/// timestamp of the last LTE_PDCP_UL_Cipher_Data_PDU or
+/// LTE_PDCP_DL_Cipher_Data_PDU packet.
+/// Note that this function itself does NOT check whether the packet is
+/// one of the two above. It MUST be used together with the predicate
+/// function `is_pdcp_cipher_data_pdu_packet`.
+/// Note that the update is done by the in-order executor.
+static void update_pdcp_cipher_data_pdu_packet_timestamp(
+    pt::ptree &&tree, Job &&job) {
+    std::string timestamp = "not available";;
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
+                timestamp = i.second.data();
+                break;
+            }
+        }
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [timestamp = std::move(timestamp)] {
+            g_last_pdcp_packet_timestamp = std::move(timestamp);
+        }
+    );
+}
+
+/// This function extracts and prints PDCP PDU sizes from
 /// LTE_PDCP_UL_Cipher_Data_PDU or LTE_PDCP_DL_Cipher_Data_PDU packets.
 /// For downlink packets, it looks like below. (XXX is the extracted field.)
 /// <dm_log_packet>
@@ -681,7 +717,7 @@ static bool is_pdcp_cipher_data_pdu_packet(
 /// </dm_log_packet>
 static void extract_pdcp_cipher_data_pdu_packet(
     pt::ptree &&tree, Job &&job) {
-    std::string timestamp = "[unknown time]";
+    std::string timestamp = "not available";
     for (const auto &i : tree.get_child("dm_log_packet")) {
         if (i.first == "pair") {
             if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
