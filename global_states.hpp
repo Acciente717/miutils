@@ -28,6 +28,15 @@ enum class MainState {
     Error
 };
 
+enum class PDCPDirection {
+    // We have not seen any pdcp data packet.
+    Unknown,
+    // The last pdcp log contains an uplink packet.
+    Uplink,
+    // The last pdcp log contains a downlink packet.
+    Downlink
+};
+
 /// Parameter: the number of extractor thread.
 extern int g_thread_num;
 
@@ -54,8 +63,16 @@ extern MainState g_main_state;
 /// The condition variable used to notify the change of main state.
 extern std::condition_variable g_main_state_change_cv;
 
-/// The timestamp of the last PDCP packet sent or received.
+/// The timestamp of the transmission of the pdcp packets contained in the
+/// last LTE_PDCP_UL_Cipher_Data_PDU or LTE_PDCP_DL_Cipher_Data_PDU packet.
 extern std::string g_last_pdcp_packet_timestamp;
+
+/// The direction of the transmission of the pdcp packets contained in the
+/// last LTE_PDCP_UL_Cipher_Data_PDU or LTE_PDCP_DL_Cipher_Data_PDU packet.
+extern PDCPDirection g_last_pdcp_packet_direction;
+
+/// Mark if we have just completed an handover.
+extern bool g_first_pdcp_packet_after_handover;
 
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception

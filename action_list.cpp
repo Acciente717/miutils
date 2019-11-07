@@ -48,6 +48,16 @@ static void update_pdcp_cipher_data_pdu_packet_timestamp(
     pt::ptree &&tree, Job &&job);
 static void extract_pdcp_cipher_data_pdu_packet(pt::ptree &&tree, Job &&job);
 
+static bool is_lte_nas_emm_ota_incoming_packet(
+    const pt::ptree &tree, const Job &job);
+static void extract_lte_nas_emm_ota_incoming_packet(
+    pt::ptree &&tree, Job &&job);
+
+static bool is_lte_nas_emm_ota_outgoing_packet(
+    const pt::ptree &tree, const Job &job);
+static void extract_lte_nas_emm_ota_outgoing_packet(
+    pt::ptree &&tree, Job &&job);
+
 /// The list storing all `ConditionalAction`s.
 ActionList g_action_list;
 
@@ -64,14 +74,14 @@ void initialize_action_list() {
     // Below is an example.
     // Predicate: find the "mobilityControlInfo is present" string recursively.
     // Action: print the timestamp of this packet.
-    g_action_list.push_back(
-        {
-            [](const pt::ptree &tree, const Job &job) {
-                return recursive_find_mobility_control_info(tree);
-            },
-            print_time_of_mobility_control_info
-        }
-    );
+    // g_action_list.push_back(
+    //     {
+    //         [](const pt::ptree &tree, const Job &job) {
+    //             return recursive_find_mobility_control_info(tree);
+    //         },
+    //         print_time_of_mobility_control_info
+    //     }
+    // );
 
     g_action_list.push_back(
         {
@@ -95,6 +105,20 @@ void initialize_action_list() {
         }
     );
 
+    g_action_list.push_back(
+        {
+            is_lte_nas_emm_ota_incoming_packet,
+            extract_lte_nas_emm_ota_incoming_packet
+        }
+    );
+
+    g_action_list.push_back(
+        {
+            is_lte_nas_emm_ota_outgoing_packet,
+            extract_lte_nas_emm_ota_outgoing_packet
+        }
+    );
+
     // Predicate: always true
     // Action: do nothing
     g_action_list.push_back(
@@ -105,6 +129,25 @@ void initialize_action_list() {
             }
         }
     );
+}
+
+/// Find and return the timestamp locating at
+/// <dm_log_packet>
+///     ...
+///     <pair key="timestamp"> TIMESTAMP </pair>
+///     ...
+/// </dm_log_packet>
+static std::string get_packet_time_stamp(const pt::ptree &tree) {
+    std::string timestamp = "timestamp N/A";
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
+                timestamp = i.second.data();
+                break;
+            }
+        }
+    }
+    return timestamp;
 }
 
 // Recursively scan through the input XML tree. Yield true if it sees
@@ -207,6 +250,35 @@ static std::vector<pt::ptree*> locate_subtree_with_attribute(
     return subtrees;
 }
 
+/// Start from the root `tree`, recursively find the following subtrees:
+/// <some_tag attribute_name=attribute_value ... >
+///     ...
+/// </some_tag>
+/// Return true if at least one such subtree exists, otherwise false.
+static bool is_subtree_with_attribute_present(
+    pt::ptree &tree,
+    const std::string &attribute_name,
+    const std::string &attribute_value
+) {
+    for (auto &i : tree) {
+        if (i.first == "<xmlattr>") {
+            for (auto &j : i.second) {
+                if (j.first == attribute_name
+                    && j.second.data() == attribute_value) {
+                    return true;
+                }
+            }
+        } else {
+            if (is_subtree_with_attribute_present(
+                i.second, attribute_name, attribute_value
+            )) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static void throw_vector_size_unequal(
     const std::string vec1_name,
     const std::string vec2_name,
@@ -241,26 +313,24 @@ static std::string generate_vector_size_unexpected_message(
 }
 
 /// This function extracts several kinds of information from RRC_OTA
-/// packets. Currently 5 kinds of information are extracted.
+/// packets. Currently 6 kinds of information are extracted.
 /// 1. adding mapping between measurement event types to report config IDs
 /// 2. removing mapping between measurement event types to report config IDs
 /// 3. adding mapping between report config IDs to measurement IDs
 /// 4. removing mapping betwee report config IDs to measurement IDs
 /// 5. sending measurement report with triggering measurement ID
+/// 6. sending RRC connection reestablishment request
+/// 7. receiving RRC connection reestablishment complete
+/// 8. receiving RRC connection reestablishment reject
+/// 9. sending RRC connection reconfiguration
+/// 10. sending RRC connection reconfiguration complete
+/// 11. sending RRC connection release
 static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
     // Warning message to be printed to stderr.
     std::string warning_message;
 
     // Extract the timestamp.
-    std::string timestamp = "not available";
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
-                timestamp = i.second.data();
-                break;
-            }
-        }
-    }
+    std::string timestamp = get_packet_time_stamp(tree);
 
     // Extract new mapping between measurement event types to report config IDs.
     // <field name="lte-rrc.ReportConfigToAddMod_element" ... >
@@ -486,6 +556,50 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
         }
     }
 
+    bool rrc_connection_reestablishment_request_present
+        = is_subtree_with_attribute_present(
+            tree, "showname", "rrcConnectionReestablishmentRequest"
+    );
+
+    bool rrc_connection_reestablishment_complete_present
+        = is_subtree_with_attribute_present(
+            tree, "showname", "rrcConnectionReestablishmentComplete"
+    );
+
+    bool rrc_connection_reestablishment_reject_present
+        = is_subtree_with_attribute_present(
+            tree, "showname", "rrcConnectionReestablishmentReject"
+    );
+
+    bool rrc_connection_reconfiguration_present = false;
+    bool mobility_control_info_present = false;
+    {
+        auto &&reconf_nodes = locate_subtree_with_attribute(
+            tree, "showname", "rrcConnectionReconfiguration"
+        );
+        if (!reconf_nodes.empty()) {
+            rrc_connection_reconfiguration_present = true;
+            for (auto i : reconf_nodes) {
+                if (is_subtree_with_attribute_present(
+                    *i, "showname", "mobilityControlInfo"
+                )) {
+                    mobility_control_info_present = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    bool rrc_connection_reconfiguration_complete_present
+        = is_subtree_with_attribute_present(
+            tree, "showname", "rrcConnectionReconfigurationComplete"
+    );
+
+    bool rrc_connection_release_present
+        = is_subtree_with_attribute_present(
+            tree, "showname", "rrcConnectionRelease"
+    );
+
     // Send the closure to ordered task executor to print extracted
     // information out.
     insert_ordered_task(
@@ -498,30 +612,80 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
          report_to_measure_ids = std::move(report_to_measure_ids),
          removed_measure_ids = std::move(removed_measure_ids),
          measurement_reports = std::move(measurement_reports),
-         warning_message = std::move(warning_message)] {
+         warning_message = std::move(warning_message),
+         rrc_connection_reestablishment_request_present,
+         rrc_connection_reestablishment_complete_present,
+         rrc_connection_reestablishment_reject_present,
+         rrc_connection_reconfiguration_present,
+         mobility_control_info_present,
+         rrc_connection_reconfiguration_complete_present,
+         rrc_connection_release_present] {
             std::cerr << warning_message;
             for (auto &i : removed_config_ids) {
-                (*g_output) << "[" << timestamp
-                << "] [reportConfigToRemoveList] $ " << i << std::endl;
+                (*g_output) << timestamp << " $ reportConfigToRemoveList $ "
+                            << i << std::endl;
             }
             for (auto &i : removed_measure_ids) {
-                (*g_output) << "[" << timestamp
-                << "] [measIdToRemoveList] $ " << i << std::endl;
+                (*g_output) << timestamp << " $ measIdToRemoveList $ "
+                            << i << std::endl;
             }
             for (auto i = 0; i < added_config_ids.size(); ++i) {
-                (*g_output) << "[" << timestamp
-                << "] [ReportConfigToAddMod] $ " << added_config_ids[i]
-                << ", " << added_event_types[i] << std::endl;
+                (*g_output) << timestamp << " $ ReportConfigToAddMod $ "
+                            << added_config_ids[i]
+                            << ", " << added_event_types[i] << std::endl;
             }
             for (auto i = 0; i < added_measure_ids.size(); ++i) {
-                (*g_output) << "[" << timestamp
-                << "] [MeasIdToAddMod] $ " << added_measure_ids[i] << ", "
-                << report_to_measure_ids[i] << std::endl;
+                (*g_output) << timestamp << " $ MeasIdToAddMod $ "
+                            << added_measure_ids[i] << ", "
+                            << report_to_measure_ids[i] << std::endl;
             }
             for (auto &i : measurement_reports) {
-                (*g_output) << "[" << timestamp
-                << "] [measResults] $ " << i << std::endl;
-        }
+                (*g_output) << timestamp << " $ measResults $ "
+                            << i << std::endl;
+            }
+            if (rrc_connection_reestablishment_request_present) {
+                (*g_output) << timestamp
+                            << " $ rrcConnectionReestablishmentRequest $"
+                            << std::endl;
+            }
+            if (rrc_connection_reestablishment_complete_present) {
+                (*g_output) << timestamp
+                            << " $ rrcConnectionReestablishmentComplete $"
+                            << std::endl;
+            }
+            if (rrc_connection_reestablishment_reject_present) {
+                (*g_output) << timestamp
+                            << " $ rrcConnectionReestablishmentReject $"
+                            << std::endl;
+            }
+            if (rrc_connection_reconfiguration_present) {
+                (*g_output) << timestamp << " $ rrcConnectionReconfiguration $"
+                            << " mobilityControlInfo: ";
+                if (mobility_control_info_present) {
+                    (*g_output) << '1';
+                } else {
+                    (*g_output) << '0';
+                }
+                (*g_output) << ", LastPDCPPacketTimestamp: "
+                            << g_last_pdcp_packet_timestamp
+                            << ", ";
+                if (g_last_pdcp_packet_direction == PDCPDirection::Downlink) {
+                    (*g_output) << "Direction: downlink";
+                } else if (g_last_pdcp_packet_direction
+                           == PDCPDirection::Uplink) {
+                    (*g_output) << "Direction: uplink";
+                }
+                (*g_output) << std::endl;
+            }
+            if (rrc_connection_reconfiguration_complete_present) {
+                (*g_output) << timestamp
+                            << " $ rrcConnectionReconfigurationComplete $"
+                            << std::endl;
+            }
+            if (rrc_connection_release_present) {
+                (*g_output) << timestamp << " $ rrcConnectionRelease $"
+                            << std::endl;
+            }
     });
 }
 
@@ -559,7 +723,7 @@ static bool is_rrc_serv_cell_info_packet(
 /// </dm_log_packet>
 static void extract_rrc_serv_cell_info_packet(
     pt::ptree &&tree, Job &&job) {
-    std::string timestamp = "not available";
+    std::string timestamp = "timestamp N/A";
     std::string cell_id, dl_freq, ul_freq;
     std::string dl_bandwidth, ul_bandwidth;
     std::string cell_identity, tracking_area_code;
@@ -640,8 +804,7 @@ static void extract_rrc_serv_cell_info_packet(
          tracking_area_code = std::move(tracking_area_code),
          err_msg = std::move(err_msg)] {
              std::cerr << err_msg;
-             (*g_output) << "[" << timestamp
-                         << "] [LTE_RRC_Serv_Cell_Info] $ "
+             (*g_output) << timestamp << " $ LTE_RRC_Serv_Cell_Info $ "
                          << "Cell ID: " << cell_id << ", "
                          << "Downlink frequency: " << dl_freq << ", "
                          << "Uplink frequency: " << ul_freq << ", "
@@ -688,21 +851,112 @@ static bool is_pdcp_cipher_data_pdu_packet(
 /// Note that the update is done by the in-order executor.
 static void update_pdcp_cipher_data_pdu_packet_timestamp(
     pt::ptree &&tree, Job &&job) {
-    std::string timestamp = "not available";;
+    std::string timestamp = get_packet_time_stamp(tree);
+
+    // Get the direction of the PDCP packets, should be uplink or downlink.
+    PDCPDirection direction = PDCPDirection::Unknown;
     for (const auto &i : tree.get_child("dm_log_packet")) {
         if (i.first == "pair") {
-            if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
-                timestamp = i.second.data();
+            if (i.second.get("<xmlattr>.key", std::string()) == "type_id") {
+                auto &&packet_type = i.second.data();
+                if (packet_type == "LTE_PDCP_UL_Cipher_Data_PDU") {
+                    direction = PDCPDirection::Uplink;
+                } else if (packet_type == "LTE_PDCP_DL_Cipher_Data_PDU") {
+                    direction = PDCPDirection::Downlink;
+                }
                 break;
             }
         }
     }
 
+    switch (direction) {
+    case PDCPDirection::Unknown:
+        throw ProgramBug(
+            "Function `update_pdcp_cipher_data_pdu_packet_timestamp`"
+            " was invoked with a packet of type neither"
+            " LTE_PDCP_UL_Cipher_Data_PDU nor"
+            " LTE_PDCP_DL_Cipher_Data_PDU."
+        );
+    case PDCPDirection::Uplink:
+        // Search if there is any uplink pdcp data packets.
+        // Note that we only treat packets with size=1412 as data packets,
+        // since upper TCP connection is sending at full speed.
+        {
+            bool uplink_pdcp_data_packet_present = false;
+            auto &&pdu_packet_list = locate_subtree_with_attribute(
+                tree, "key", "PDCPUL CIPH DATA"
+            );
+            for (auto pdu_packets : pdu_packet_list) {
+                auto &&sizes = locate_subtree_with_attribute(
+                    *pdu_packets, "key", "PDU Size"
+                );
+                for (auto size : sizes) {
+                    if (size->data() == "1412") {
+                        uplink_pdcp_data_packet_present = true;
+                        break;
+                    }
+                }
+                if (uplink_pdcp_data_packet_present) {
+                    break;
+                }
+            }
+            if (uplink_pdcp_data_packet_present) {
+                insert_ordered_task(
+                    job.job_num,
+                    [timestamp = std::move(timestamp)] {
+                        g_last_pdcp_packet_timestamp = std::move(timestamp);
+                        g_last_pdcp_packet_direction = PDCPDirection::Uplink;
+                    }
+                );
+                return;
+            }
+        }
+        break;
+    case PDCPDirection::Downlink:
+        // Search if there is any downlink pdcp data packets.
+        // Note that we only treat packets with size=1412 as data packets,
+        // since upper TCP connection is sending at full speed.
+        {
+            bool downlink_pdcp_data_packet_present = false;
+            auto &&pdu_packet_list = locate_subtree_with_attribute(
+                tree, "key", "PDCPDL CIPH DATA"
+            );
+            for (auto pdu_packets : pdu_packet_list) {
+                auto &&sizes = locate_subtree_with_attribute(
+                    *pdu_packets, "key", "PDU Size"
+                );
+                for (auto size : sizes) {
+                    if (size->data() == "1412") {
+                        downlink_pdcp_data_packet_present = true;
+                        break;
+                    }
+                }
+                if (downlink_pdcp_data_packet_present) {
+                    break;
+                }
+            }
+            if (downlink_pdcp_data_packet_present) {
+                insert_ordered_task(
+                    job.job_num,
+                    [timestamp = std::move(timestamp)] {
+                        g_last_pdcp_packet_timestamp = std::move(timestamp);
+                        g_last_pdcp_packet_direction = PDCPDirection::Downlink;
+                    }
+                );
+                return;
+            }
+        }
+        break;
+    default:
+        throw ProgramBug(
+            "PDCPDirection should be one of the following: "
+            "Unknown, Uplink, Downlink."
+        );
+    }
+
     insert_ordered_task(
         job.job_num,
-        [timestamp = std::move(timestamp)] {
-            g_last_pdcp_packet_timestamp = std::move(timestamp);
-        }
+        [] {}
     );
 }
 
@@ -717,15 +971,7 @@ static void update_pdcp_cipher_data_pdu_packet_timestamp(
 /// </dm_log_packet>
 static void extract_pdcp_cipher_data_pdu_packet(
     pt::ptree &&tree, Job &&job) {
-    std::string timestamp = "not available";
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get<std::string>("<xmlattr>.key") == "timestamp") {
-                timestamp = i.second.data();
-                break;
-            }
-        }
-    }
+    std::string timestamp = get_packet_time_stamp(tree);
 
     // Extract uplink PDCP PDU size.
     std::vector<std::string> ul_pdu_sizes;
@@ -765,15 +1011,169 @@ static void extract_pdcp_cipher_data_pdu_packet(
          ul_pdu_sizes = std::move(ul_pdu_sizes),
          dl_pdu_sizes = std::move(dl_pdu_sizes)] {
              for (const auto &i : ul_pdu_sizes) {
-                    (*g_output) << "[" << timestamp
-                         << "] [LTE_PDCP_UL_Cipher_Data_PDU] $ "
-                         << "PDU Size: " << i << std::endl;
+                (*g_output) << timestamp
+                            << " $ LTE_PDCP_UL_Cipher_Data_PDU $ "
+                            << "PDU Size: " << i << std::endl;
              }
              for (const auto &i : dl_pdu_sizes) {
-                    (*g_output) << "[" << timestamp
-                         << "] [LTE_PDCP_DL_Cipher_Data_PDU] $ "
-                         << "PDU Size: " << i << std::endl;
+                (*g_output) << timestamp
+                            << " $ LTE_PDCP_DL_Cipher_Data_PDU $ "
+                            << "PDU Size: " << i << std::endl;
              }
+        }
+    );
+}
+
+/// Return true if and only if the tree has the following structure:
+/// <dm_log_packet>
+///     ...
+///     <pair key="type_id">LTE_NAS_EMM_OTA_Incoming_Packet</pair>
+///     ...
+/// <dm_log_packet>
+static bool is_lte_nas_emm_ota_incoming_packet(
+    const pt::ptree &tree, const Job &job) {
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
+                && i.second.data() == "LTE_NAS_EMM_OTA_Incoming_Packet") {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// This function extracts and prints tracking area update accept or reject
+/// from LTE_NAS_EMM_OTA_Incoming_Packet packets. For update accept, it
+/// looks for the pattern shown below.
+/// <dm_log_packet>
+///     ...
+///         <field name="nas_eps.nas_msg_emm_type"
+///             showname="NAS EPS Mobility Management Message Type:
+///                       Tracking area update accept (0x49)" ... />
+///     ...
+/// </dm_log_packet>
+static void extract_lte_nas_emm_ota_incoming_packet(
+    pt::ptree &&tree, Job &&job) {
+    std::string timestamp = get_packet_time_stamp(tree);
+
+    bool tracking_area_update_accept = false;
+    bool tracking_area_update_reject = false;
+    auto &&nas_msg_emm_type_fields = locate_subtree_with_attribute(
+        tree, "name", "nas_eps.nas_msg_emm_type"
+    );
+    for (auto ptr : nas_msg_emm_type_fields) {
+        auto &&showname = ptr->get("<xmlattr>.showname", std::string());
+        if (showname.find("Tracking area update accept") != std::string::npos) {
+            tracking_area_update_accept = true;
+            break;
+        }
+        if (showname.find("Tracking area update reject") != std::string::npos) {
+            tracking_area_update_reject = true;
+            break;
+        }
+    }
+
+    // If tracking area update request is neither accecpted or rejected,
+    // we have nothing to print. Simply do nothing.
+    if (!tracking_area_update_accept && !tracking_area_update_reject) {
+        insert_ordered_task(
+            job.job_num, [] {}
+        );
+        return;
+    }
+
+    std::string message;
+    message += timestamp + " $ LTE_NAS_EMM_OTA_Incoming_Packet $ "
+               + "Tracking area update accept: ";
+    if (tracking_area_update_accept) {
+        message += "1";
+    } else {
+        message += "0";
+    }
+    message += ", Tracking area update reject: ";
+    if (tracking_area_update_reject) {
+        message += "1";
+    } else {
+        message += "0";
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [message = std::move(message)] {
+            (*g_output) << message << std::endl;
+        }
+    );
+}
+
+/// Return true if and only if the tree has the following structure:
+/// <dm_log_packet>
+///     ...
+///     <pair key="type_id">LTE_NAS_EMM_OTA_Outgoing_Packet</pair>
+///     ...
+/// <dm_log_packet>
+static bool is_lte_nas_emm_ota_outgoing_packet(
+    const pt::ptree &tree, const Job &job) {
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
+                && i.second.data() == "LTE_NAS_EMM_OTA_Outgoing_Packet") {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// This function extracts and prints tracking area update request
+/// from LTE_NAS_EMM_OTA_Outgoing_Packet packets. It looks for the
+/// pattern shown below.
+/// <dm_log_packet>
+///     ...
+///         <field name="nas_eps.nas_msg_emm_type"
+///             showname="NAS EPS Mobility Management Message Type:
+///                       Tracking area update request (0x48)" ... />
+///     ...
+/// </dm_log_packet>
+static void extract_lte_nas_emm_ota_outgoing_packet(
+    pt::ptree &&tree, Job &&job) {
+    std::string timestamp = get_packet_time_stamp(tree);
+
+    bool tracking_area_update_request = false;
+    auto &&nas_msg_emm_type_fields = locate_subtree_with_attribute(
+        tree, "name", "nas_eps.nas_msg_emm_type"
+    );
+    for (auto ptr : nas_msg_emm_type_fields) {
+        auto &&showname = ptr->get("<xmlattr>.showname", std::string());
+        if (showname.find("Tracking area update request")
+            != std::string::npos) {
+            tracking_area_update_request = true;
+            break;
+        }
+    }
+
+    // If the packet does not contain tracking area update request,
+    // we have nothing to print. Simply do nothing.
+    if (!tracking_area_update_request) {
+        insert_ordered_task(
+            job.job_num, [] {}
+        );
+        return;
+    }
+
+    std::string message;
+    message += timestamp + " $ LTE_NAS_EMM_OTA_Outgoing_Packet $ "
+               + "Tracking area update request: ";
+    if (tracking_area_update_request) {
+        message += "1";
+    } else {
+        message += "0";
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [message = std::move(message)] {
+            (*g_output) << message << std::endl;
         }
     );
 }
