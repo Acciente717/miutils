@@ -58,6 +58,16 @@ static bool is_lte_nas_emm_ota_outgoing_packet(
 static void extract_lte_nas_emm_ota_outgoing_packet(
     pt::ptree &&tree, Job &&job);
 
+static bool is_lte_mac_rach_attempt_packet(
+    const pt::ptree &tree, const Job &job);
+static void extract_lte_mac_rach_attempt_packet(
+    pt::ptree &&tree, Job &&job);
+
+static bool is_lte_mac_rach_trigger_packet(
+    const pt::ptree &tree, const Job &job);
+static void extract_lte_mac_rach_trigger_packet(
+    pt::ptree &&tree, Job &&job);
+
 /// The list storing all `ConditionalAction`s.
 ActionList g_action_list;
 
@@ -116,6 +126,20 @@ void initialize_action_list() {
         {
             is_lte_nas_emm_ota_outgoing_packet,
             extract_lte_nas_emm_ota_outgoing_packet
+        }
+    );
+
+    g_action_list.push_back(
+        {
+            is_lte_mac_rach_attempt_packet,
+            extract_lte_mac_rach_attempt_packet
+        }
+    );
+
+    g_action_list.push_back(
+        {
+            is_lte_mac_rach_trigger_packet,
+            extract_lte_mac_rach_trigger_packet
         }
     );
 
@@ -313,7 +337,7 @@ static std::string generate_vector_size_unexpected_message(
 }
 
 /// This function extracts several kinds of information from RRC_OTA
-/// packets. Currently 6 kinds of information are extracted.
+/// packets. Currently 14 kinds of information are extracted.
 /// 1. adding mapping between measurement event types to report config IDs
 /// 2. removing mapping between measurement event types to report config IDs
 /// 3. adding mapping between report config IDs to measurement IDs
@@ -325,6 +349,9 @@ static std::string generate_vector_size_unexpected_message(
 /// 9. sending RRC connection reconfiguration
 /// 10. sending RRC connection reconfiguration complete
 /// 11. sending RRC connection release
+/// 12. sending RRC connection request
+/// 13. receiving RRC connection setup
+/// 14. receiving RRC connection reject
 static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
     // Warning message to be printed to stderr.
     std::string warning_message;
@@ -565,6 +592,19 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
         = is_subtree_with_attribute_present(
             tree, "showname", "rrcConnectionReestablishmentComplete"
     );
+    std::string connection_reestablishment_cause;
+    {
+        auto &&causes = locate_subtree_with_attribute(
+            tree, "name", "lte-rrc.reestablishmentCause"
+        );
+        for (auto p_cause : causes) {
+            if (!connection_reestablishment_cause.empty()) {
+                connection_reestablishment_cause += ", ";
+            }
+            connection_reestablishment_cause +=
+                p_cause->get("<xmlattr>.showname", std::string());
+        }
+    }
 
     bool rrc_connection_reestablishment_reject_present
         = is_subtree_with_attribute_present(
@@ -579,9 +619,9 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
         );
         if (!reconf_nodes.empty()) {
             rrc_connection_reconfiguration_present = true;
-            for (auto i : reconf_nodes) {
+            for (auto p_reconf_node : reconf_nodes) {
                 if (is_subtree_with_attribute_present(
-                    *i, "showname", "mobilityControlInfo"
+                    *p_reconf_node, "showname", "mobilityControlInfo"
                 )) {
                     mobility_control_info_present = true;
                     break;
@@ -598,6 +638,21 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
     bool rrc_connection_release_present
         = is_subtree_with_attribute_present(
             tree, "showname", "rrcConnectionRelease"
+    );
+
+    bool rrc_connection_request_present
+        = is_subtree_with_attribute_present(
+            tree, "showname", "rrcConnectionRequest"
+    );
+
+    bool rrc_connection_setup_present
+        = is_subtree_with_attribute_present(
+            tree, "showname", "rrcConnectionSetup"
+    );
+
+    bool rrc_connection_reject_present
+        = is_subtree_with_attribute_present(
+            tree, "showname", "rrcConnectionReject"
     );
 
     // Send the closure to ordered task executor to print extracted
@@ -618,8 +673,35 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
          rrc_connection_reestablishment_reject_present,
          rrc_connection_reconfiguration_present,
          mobility_control_info_present,
+         connection_reestablishment_cause
+            = std::move(connection_reestablishment_cause),
          rrc_connection_reconfiguration_complete_present,
-         rrc_connection_release_present] {
+         rrc_connection_release_present,
+         rrc_connection_request_present,
+         rrc_connection_setup_present,
+         rrc_connection_reject_present] {
+            auto print_last_data_pdcp_packet_timestamp = [] {
+            (*g_output) << "LastPDCPPacketTimestamp: "
+                        << g_last_pdcp_packet_timestamp
+                        << ", Direction: ";
+                if (g_last_pdcp_packet_direction == PDCPDirection::Downlink) {
+                    (*g_output) << "downlink";
+                } else if (g_last_pdcp_packet_direction
+                            == PDCPDirection::Uplink) {
+                    (*g_output) << "uplink";
+                } else {
+                    (*g_output) << "unknown";
+                }
+            };
+
+            auto set_connection_disruption =
+                [] (DisruptionEventEnum event_type) {
+                g_distuption_events.is_being_disrupted = true;
+                g_distuption_events.disruptions[
+                    static_cast<int>(event_type)
+                ] = true;
+            };
+
             std::cerr << warning_message;
             for (auto &i : removed_config_ids) {
                 (*g_output) << timestamp << " $ reportConfigToRemoveList $ "
@@ -645,13 +727,23 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
             }
             if (rrc_connection_reestablishment_request_present) {
                 (*g_output) << timestamp
-                            << " $ rrcConnectionReestablishmentRequest $"
-                            << std::endl;
+                            << " $ rrcConnectionReestablishmentRequest $ ";
+                print_last_data_pdcp_packet_timestamp();
+                set_connection_disruption(
+                    DisruptionEventEnum::RRCConnectionReestablishmentRequest
+                );;
+                if (!connection_reestablishment_cause.empty()) {
+                    (*g_output) << ", " << connection_reestablishment_cause;
+                }
+                (*g_output) << std::endl;
             }
             if (rrc_connection_reestablishment_complete_present) {
                 (*g_output) << timestamp
                             << " $ rrcConnectionReestablishmentComplete $"
                             << std::endl;
+                set_connection_disruption(
+                    DisruptionEventEnum::RRCConnectionReestablishmentComplete
+                );
             }
             if (rrc_connection_reestablishment_reject_present) {
                 (*g_output) << timestamp
@@ -666,24 +758,42 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
                 } else {
                     (*g_output) << '0';
                 }
-                (*g_output) << ", LastPDCPPacketTimestamp: "
-                            << g_last_pdcp_packet_timestamp
-                            << ", ";
-                if (g_last_pdcp_packet_direction == PDCPDirection::Downlink) {
-                    (*g_output) << "Direction: downlink";
-                } else if (g_last_pdcp_packet_direction
-                           == PDCPDirection::Uplink) {
-                    (*g_output) << "Direction: uplink";
-                }
+                (*g_output) << ", ";
+                print_last_data_pdcp_packet_timestamp();
+                set_connection_disruption(
+                    DisruptionEventEnum::RRCConnectionReconfiguration
+                );
                 (*g_output) << std::endl;
             }
             if (rrc_connection_reconfiguration_complete_present) {
                 (*g_output) << timestamp
                             << " $ rrcConnectionReconfigurationComplete $"
                             << std::endl;
+                set_connection_disruption(
+                    DisruptionEventEnum::RRCConnectionReconfigurationComplete
+                );
             }
             if (rrc_connection_release_present) {
                 (*g_output) << timestamp << " $ rrcConnectionRelease $"
+                            << std::endl;
+            }
+            if (rrc_connection_request_present) {
+                (*g_output) << timestamp << " $ rrcConnectionRequest $ ";
+                print_last_data_pdcp_packet_timestamp();
+                set_connection_disruption(
+                    DisruptionEventEnum::RRCConnectionRequest
+                );
+                (*g_output) << std::endl;
+            }
+            if (rrc_connection_setup_present) {
+                (*g_output) << timestamp << " $ rrcConnectionSetup $"
+                            << std::endl;
+                set_connection_disruption(
+                    DisruptionEventEnum::RRCConnectionSetup
+                );
+            }
+            if (rrc_connection_reject_present) {
+                (*g_output) << timestamp << " $ rrcConnectionReject $"
                             << std::endl;
             }
     });
@@ -869,6 +979,37 @@ static void update_pdcp_cipher_data_pdu_packet_timestamp(
         }
     }
 
+    auto print_timestamp_of_first_pdcp_packet_after_disruption =
+        [timestamp, direction] {
+        if (g_distuption_events.is_being_disrupted) {
+            for (int i = 0;
+                i < static_cast<int>(DisruptionEventEnum::NumberOfDisruptions);
+                ++i) {
+                if (g_distuption_events.disruptions[i]) {
+                    (*g_output) << timestamp
+                                << " $ FirstPDCPPacketAfterDisruption $ "
+                                << "Disruption Type: "
+                                << DisruptionEventNames[i]
+                                << ", Direction: ";
+                    switch (direction) {
+                    case PDCPDirection::Unknown:
+                        (*g_output) << "unknown";
+                        break;
+                    case PDCPDirection::Uplink:
+                        (*g_output) << "uplink";
+                        break;
+                    case PDCPDirection::Downlink:
+                        (*g_output) << "downlink";
+                        break;
+                    }
+                    (*g_output) << std::endl;
+                    g_distuption_events.disruptions[i] = false;
+                }
+            }
+            g_distuption_events.is_being_disrupted = false;
+        }
+    };
+
     switch (direction) {
     case PDCPDirection::Unknown:
         throw ProgramBug(
@@ -903,7 +1044,9 @@ static void update_pdcp_cipher_data_pdu_packet_timestamp(
             if (uplink_pdcp_data_packet_present) {
                 insert_ordered_task(
                     job.job_num,
-                    [timestamp = std::move(timestamp)] {
+                    [timestamp = std::move(timestamp),
+                     print_timestamp_of_first_pdcp_packet_after_disruption] {
+                        print_timestamp_of_first_pdcp_packet_after_disruption();
                         g_last_pdcp_packet_timestamp = std::move(timestamp);
                         g_last_pdcp_packet_direction = PDCPDirection::Uplink;
                     }
@@ -938,7 +1081,9 @@ static void update_pdcp_cipher_data_pdu_packet_timestamp(
             if (downlink_pdcp_data_packet_present) {
                 insert_ordered_task(
                     job.job_num,
-                    [timestamp = std::move(timestamp)] {
+                    [timestamp = std::move(timestamp),
+                     print_timestamp_of_first_pdcp_packet_after_disruption] {
+                        print_timestamp_of_first_pdcp_packet_after_disruption();
                         g_last_pdcp_packet_timestamp = std::move(timestamp);
                         g_last_pdcp_packet_direction = PDCPDirection::Downlink;
                     }
@@ -1174,6 +1319,114 @@ static void extract_lte_nas_emm_ota_outgoing_packet(
         job.job_num,
         [message = std::move(message)] {
             (*g_output) << message << std::endl;
+        }
+    );
+}
+
+/// Return true if and only if the tree has the following structure:
+/// <dm_log_packet>
+///     ...
+///     <pair key="type_id">LTE_MAC_Rach_Attempt</pair>
+///     ...
+/// <dm_log_packet>
+static bool is_lte_mac_rach_attempt_packet(
+    const pt::ptree &tree, const Job &job) {
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
+                && i.second.data() == "LTE_MAC_Rach_Attempt") {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// This function extracts and prints random access results
+/// from LTE_MAC_Rach_Attempt packets. It looks for the
+/// pattern shown below.
+/// <dm_log_packet>
+///     ...
+///         <pair key="Rach result"> XXX </pair>
+///     ...
+/// </dm_log_packet>
+static void extract_lte_mac_rach_attempt_packet(
+    pt::ptree &&tree, Job &&job) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+
+    std::string results;
+    {
+        auto &&rach_results = locate_subtree_with_attribute(
+            tree, "key", "Rach result"
+        );
+        for (auto ptr : rach_results) {
+            if (!results.empty()) {
+                results += ", ";
+            }
+            results += ptr->data();
+        }
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [timestamp = std::move(timestamp),
+         results = std::move(results)] {
+            (*g_output) << timestamp << " $ LTE_MAC_Rach_Attempt $ "
+                        << results << std::endl;
+        }
+    );
+}
+
+/// Return true if and only if the tree has the following structure:
+/// <dm_log_packet>
+///     ...
+///     <pair key="type_id">LTE_MAC_Rach_Trigger</pair>
+///     ...
+/// <dm_log_packet>
+static bool is_lte_mac_rach_trigger_packet(
+    const pt::ptree &tree, const Job &job) {
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
+                && i.second.data() == "LTE_MAC_Rach_Trigger") {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// This function extracts and prints triggering reason of ramdom access
+/// from LTE_MAC_Rach_Trigger packets. It looks for the
+/// pattern shown below.
+/// <dm_log_packet>
+///     ...
+///         <pair key="Rach reason"> XXX </pair>
+///     ...
+/// </dm_log_packet>
+static void extract_lte_mac_rach_trigger_packet(
+    pt::ptree &&tree, Job &&job) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+
+    std::string reasons;
+    {
+        auto &&rach_results = locate_subtree_with_attribute(
+            tree, "key", "Rach reason"
+        );
+        for (auto ptr : rach_results) {
+            if (!reasons.empty()) {
+                reasons += ", ";
+            }
+            reasons += ptr->data();
+        }
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [timestamp = std::move(timestamp),
+         reasons = std::move(reasons)] {
+            (*g_output) << timestamp << " $ LTE_MAC_Rach_Trigger $ "
+                        << reasons << std::endl;
         }
     );
 }

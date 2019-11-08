@@ -28,6 +28,7 @@ enum class MainState {
     Error
 };
 
+/// The direction of the last seen PDCP packet.
 enum class PDCPDirection {
     // We have not seen any pdcp data packet.
     Unknown,
@@ -35,6 +36,40 @@ enum class PDCPDirection {
     Uplink,
     // The last pdcp log contains a downlink packet.
     Downlink
+};
+
+/// Enum for disruption events. These events are possible subfields
+/// in RRC OTA packets.
+enum class DisruptionEventEnum {
+    RRCConnectionReconfiguration,
+    RRCConnectionReconfigurationComplete,
+    RRCConnectionReestablishmentRequest,
+    RRCConnectionReestablishmentComplete,
+    RRCConnectionRequest,
+    RRCConnectionSetup,
+    NumberOfDisruptions
+};
+
+/// Name of the disruption events, ordered in the same sequence
+/// as in the corresponding enum.
+constexpr const char *DisruptionEventNames[] = {
+    "RRCConnectionReconfiguration",
+    "RRCConnectionReconfigurationComplete",
+    "RRCConnectionReestablishmentRequest",
+    "RRCConnectionReestablishmentComplete",
+    "RRCConnectionRequest",
+    "RRCConnectionSetup",
+    "NumberOfDisruptions"
+};
+
+/// This structure records on going disruption events.
+struct DisruptionEvents {
+    /// If there is any ongoing disruption.
+    bool is_being_disrupted;
+    /// Disruption vector corresponding to events in the enum.
+    bool disruptions[
+        static_cast<int>(DisruptionEventEnum::NumberOfDisruptions)
+    ];
 };
 
 /// Parameter: the number of extractor thread.
@@ -73,6 +108,9 @@ extern PDCPDirection g_last_pdcp_packet_direction;
 
 /// Mark if we have just completed an handover.
 extern bool g_first_pdcp_packet_after_handover;
+
+/// Disruption events, see definition of the structure for details.
+extern DisruptionEvents g_distuption_events;
 
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception

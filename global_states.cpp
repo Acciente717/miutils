@@ -35,6 +35,10 @@ std::string g_last_pdcp_packet_timestamp = "unknown";
 /// last LTE_PDCP_UL_Cipher_Data_PDU or LTE_PDCP_DL_Cipher_Data_PDU packet.
 PDCPDirection g_last_pdcp_packet_direction = PDCPDirection::Unknown;
 
+DisruptionEvents g_distuption_events = {
+    .is_being_disrupted = false
+};
+
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception
 /// pointer.
