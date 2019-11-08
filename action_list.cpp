@@ -32,39 +32,24 @@
 #include <string>
 #include <iostream>
 
+static bool is_packet_having_type(
+    const pt::ptree &tree, const std::string type_id);
+
 static bool recursive_find_mobility_control_info(const pt::ptree &tree);
 static void print_time_of_mobility_control_info(pt::ptree &&tree, Job &&job);
 static void print_timestamp(pt::ptree &&tree, long seq_num);
 
-static bool is_rrc_ota_packet(const pt::ptree &tree, const Job &job);
 static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job);
-
-static bool is_rrc_serv_cell_info_packet(const pt::ptree &tree, const Job &job);
 static void extract_rrc_serv_cell_info_packet(pt::ptree &&tree, Job &&job);
-
-static bool is_pdcp_cipher_data_pdu_packet(
-    const pt::ptree &tree, const Job &job);
 static void update_pdcp_cipher_data_pdu_packet_timestamp(
     pt::ptree &&tree, Job &&job);
 static void extract_pdcp_cipher_data_pdu_packet(pt::ptree &&tree, Job &&job);
-
-static bool is_lte_nas_emm_ota_incoming_packet(
-    const pt::ptree &tree, const Job &job);
 static void extract_lte_nas_emm_ota_incoming_packet(
     pt::ptree &&tree, Job &&job);
-
-static bool is_lte_nas_emm_ota_outgoing_packet(
-    const pt::ptree &tree, const Job &job);
 static void extract_lte_nas_emm_ota_outgoing_packet(
     pt::ptree &&tree, Job &&job);
-
-static bool is_lte_mac_rach_attempt_packet(
-    const pt::ptree &tree, const Job &job);
 static void extract_lte_mac_rach_attempt_packet(
     pt::ptree &&tree, Job &&job);
-
-static bool is_lte_mac_rach_trigger_packet(
-    const pt::ptree &tree, const Job &job);
 static void extract_lte_mac_rach_trigger_packet(
     pt::ptree &&tree, Job &&job);
 
@@ -95,13 +80,19 @@ void initialize_action_list() {
 
     g_action_list.push_back(
         {
-            is_rrc_ota_packet, extract_rrc_ota_packet
+            [] (const pt::ptree &tree, const Job &job) {
+                return is_packet_having_type(tree, "LTE_RRC_OTA_Packet");
+            },
+            extract_rrc_ota_packet
         }
     );
 
     g_action_list.push_back(
         {
-            is_rrc_serv_cell_info_packet, extract_rrc_serv_cell_info_packet
+            [] (const pt::ptree &tree, const Job &job) {
+                return is_packet_having_type(tree, "LTE_RRC_Serv_Cell_Info");
+            },
+            extract_rrc_serv_cell_info_packet
         }
     );
 
@@ -110,35 +101,56 @@ void initialize_action_list() {
     //       is_pdcp_cipher_data_pdu_packet, extract_pdcp_cipher_data_pdu_packet
     //   }
         {
-            is_pdcp_cipher_data_pdu_packet,
+            [] (const pt::ptree &tree, const Job &job) {
+                return
+                    is_packet_having_type(tree, "LTE_PDCP_UL_Cipher_Data_PDU")
+                    ||
+                    is_packet_having_type(tree, "LTE_PDCP_DL_Cipher_Data_PDU");
+            },
             update_pdcp_cipher_data_pdu_packet_timestamp
         }
     );
 
     g_action_list.push_back(
         {
-            is_lte_nas_emm_ota_incoming_packet,
+            [] (const pt::ptree &tree, const Job &job) {
+                return is_packet_having_type(
+                    tree, "LTE_NAS_EMM_OTA_Incoming_Packet"
+                );
+            },
             extract_lte_nas_emm_ota_incoming_packet
         }
     );
 
     g_action_list.push_back(
         {
-            is_lte_nas_emm_ota_outgoing_packet,
+            [] (const pt::ptree &tree, const Job &job) {
+                return is_packet_having_type(
+                    tree, "LTE_NAS_EMM_OTA_Outgoing_Packet"
+                );
+            },
             extract_lte_nas_emm_ota_outgoing_packet
         }
     );
 
     g_action_list.push_back(
         {
-            is_lte_mac_rach_attempt_packet,
+            [] (const pt::ptree &tree, const Job &job) {
+                return is_packet_having_type(
+                    tree, "LTE_MAC_Rach_Attempt"
+                );
+            },
             extract_lte_mac_rach_attempt_packet
         }
     );
 
     g_action_list.push_back(
         {
-            is_lte_mac_rach_trigger_packet,
+            [] (const pt::ptree &tree, const Job &job) {
+                return is_packet_having_type(
+                    tree, "LTE_MAC_Rach_Trigger"
+                );
+            },
             extract_lte_mac_rach_trigger_packet
         }
     );
@@ -153,6 +165,25 @@ void initialize_action_list() {
             }
         }
     );
+}
+
+/// Return true if and only if the tree has the following structure:
+/// <dm_log_packet>
+///     ...
+///     <pair key="type_id">$type_id</pair>
+///     ...
+/// <dm_log_packet>
+static bool is_packet_having_type(
+    const pt::ptree &tree, const std::string type_id) {
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
+                && i.second.data() == type_id) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /// Find and return the timestamp locating at
@@ -223,24 +254,6 @@ static void print_time_of_mobility_control_info(pt::ptree &&tree, Job &&job) {
             }
         }
     }
-}
-
-/// Return true if and only if the tree has the following structure:
-/// <dm_log_packet>
-///     ...
-///     <pair key="type_id">LTE_RRC_OTA_Packet</pair>
-///     ...
-/// <dm_log_packet>
-static bool is_rrc_ota_packet(const pt::ptree &tree, const Job &job) {
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
-                && i.second.data() == "LTE_RRC_OTA_Packet") {
-                return true;
-            }
-        }
-    }
-    return false;
 }
 
 /// Start from the root `tree`, recursively find the following subtrees:
@@ -799,25 +812,6 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
     });
 }
 
-/// Return true if and only if the tree has the following structure:
-/// <dm_log_packet>
-///     ...
-///     <pair key="type_id">LTE_RRC_Serv_Cell_Info</pair>
-///     ...
-/// <dm_log_packet>
-static bool is_rrc_serv_cell_info_packet(
-    const pt::ptree &tree, const Job &job) {
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
-                && i.second.data() == "LTE_RRC_Serv_Cell_Info") {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 /// Extract the following field from an LTE_RRC_Serv_Cell_Info packet.
 /// <dm_log_packet>
 ///     <pair key="type_id">LTE_RRC_Serv_Cell_Info</pair>
@@ -926,38 +920,12 @@ static void extract_rrc_serv_cell_info_packet(
     );
 }
 
-/// Return true if and only if the tree has the following structure:
-/// <dm_log_packet>
-///     ...
-///     <pair key="type_id">LTE_PDCP_UL_Cipher_Data_PDU</pair>
-///     ...
-/// <dm_log_packet>
-/// or
-/// <dm_log_packet>
-///     ...
-///     <pair key="type_id">LTE_PDCP_DL_Cipher_Data_PDU</pair>
-///     ...
-/// <dm_log_packet>
-static bool is_pdcp_cipher_data_pdu_packet(
-    const pt::ptree &tree, const Job &job) {
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
-                && (i.second.data() == "LTE_PDCP_UL_Cipher_Data_PDU"
-                    || i.second.data() == "LTE_PDCP_DL_Cipher_Data_PDU")) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 /// This function extracts and update the global string containing the
 /// timestamp of the last LTE_PDCP_UL_Cipher_Data_PDU or
 /// LTE_PDCP_DL_Cipher_Data_PDU packet.
 /// Note that this function itself does NOT check whether the packet is
 /// one of the two above. It MUST be used together with the predicate
-/// function `is_pdcp_cipher_data_pdu_packet`.
+/// function.
 /// Note that the update is done by the in-order executor.
 static void update_pdcp_cipher_data_pdu_packet_timestamp(
     pt::ptree &&tree, Job &&job) {
@@ -1169,25 +1137,6 @@ static void extract_pdcp_cipher_data_pdu_packet(
     );
 }
 
-/// Return true if and only if the tree has the following structure:
-/// <dm_log_packet>
-///     ...
-///     <pair key="type_id">LTE_NAS_EMM_OTA_Incoming_Packet</pair>
-///     ...
-/// <dm_log_packet>
-static bool is_lte_nas_emm_ota_incoming_packet(
-    const pt::ptree &tree, const Job &job) {
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
-                && i.second.data() == "LTE_NAS_EMM_OTA_Incoming_Packet") {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 /// This function extracts and prints tracking area update accept or reject
 /// from LTE_NAS_EMM_OTA_Incoming_Packet packets. For update accept, it
 /// looks for the pattern shown below.
@@ -1251,25 +1200,6 @@ static void extract_lte_nas_emm_ota_incoming_packet(
     );
 }
 
-/// Return true if and only if the tree has the following structure:
-/// <dm_log_packet>
-///     ...
-///     <pair key="type_id">LTE_NAS_EMM_OTA_Outgoing_Packet</pair>
-///     ...
-/// <dm_log_packet>
-static bool is_lte_nas_emm_ota_outgoing_packet(
-    const pt::ptree &tree, const Job &job) {
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
-                && i.second.data() == "LTE_NAS_EMM_OTA_Outgoing_Packet") {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 /// This function extracts and prints tracking area update request
 /// from LTE_NAS_EMM_OTA_Outgoing_Packet packets. It looks for the
 /// pattern shown below.
@@ -1323,25 +1253,6 @@ static void extract_lte_nas_emm_ota_outgoing_packet(
     );
 }
 
-/// Return true if and only if the tree has the following structure:
-/// <dm_log_packet>
-///     ...
-///     <pair key="type_id">LTE_MAC_Rach_Attempt</pair>
-///     ...
-/// <dm_log_packet>
-static bool is_lte_mac_rach_attempt_packet(
-    const pt::ptree &tree, const Job &job) {
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
-                && i.second.data() == "LTE_MAC_Rach_Attempt") {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 /// This function extracts and prints random access results
 /// from LTE_MAC_Rach_Attempt packets. It looks for the
 /// pattern shown below.
@@ -1375,25 +1286,6 @@ static void extract_lte_mac_rach_attempt_packet(
                         << results << std::endl;
         }
     );
-}
-
-/// Return true if and only if the tree has the following structure:
-/// <dm_log_packet>
-///     ...
-///     <pair key="type_id">LTE_MAC_Rach_Trigger</pair>
-///     ...
-/// <dm_log_packet>
-static bool is_lte_mac_rach_trigger_packet(
-    const pt::ptree &tree, const Job &job) {
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
-                && i.second.data() == "LTE_MAC_Rach_Trigger") {
-                return true;
-            }
-        }
-    }
-    return false;
 }
 
 /// This function extracts and prints triggering reason of ramdom access
