@@ -97,9 +97,15 @@ void initialize_action_list() {
     );
 
     g_action_list.push_back(
-    //   {
-    //       is_pdcp_cipher_data_pdu_packet, extract_pdcp_cipher_data_pdu_packet
-    //   }
+        // {
+        //     [] (const pt::ptree &tree, const Job &job) {
+        //         return
+        //             is_packet_having_type(tree, "LTE_PDCP_UL_Cipher_Data_PDU")
+        //             ||
+        //             is_packet_having_type(tree, "LTE_PDCP_DL_Cipher_Data_PDU");
+        //     },
+        //     extract_pdcp_cipher_data_pdu_packet
+        // }
         {
             [] (const pt::ptree &tree, const Job &job) {
                 return
@@ -205,6 +211,26 @@ static std::string get_packet_time_stamp(const pt::ptree &tree) {
     return timestamp;
 }
 
+static bool is_tree_having_attribute(
+    const pt::ptree &tree, const std::string &key, const std::string &val) {
+    auto &&attributes = tree.get_child_optional("<xmlattr>");
+
+    // If the root XML tree has no attribute.
+    if (!attributes) {
+        return false;
+    }
+
+    // Scan through the attributes to see if there is any key:val pair.
+    for (auto attribute : *attributes) {
+        if (attribute.first == key
+            && attribute.second.get_value(std::string()) == val) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // Recursively scan through the input XML tree. Yield true if it sees
 // a field that contains "mobilityControlInfo is present" as a substring.
 static bool recursive_find_mobility_control_info(const pt::ptree &tree) {
@@ -263,12 +289,12 @@ static void print_time_of_mobility_control_info(pt::ptree &&tree, Job &&job) {
 /// Return the pointers to the roots of the subtrees, i.e. all the subtrees
 /// starting at `some_tag` with the attribute name `attribute_name` and
 /// attribute value `attribute_value`.
-static std::vector<pt::ptree*> locate_subtree_with_attribute(
-    pt::ptree &tree,
+static std::vector<const pt::ptree*> locate_subtree_with_attribute(
+    const pt::ptree &tree,
     const std::string &attribute_name,
     const std::string &attribute_value
 ) {
-    std::vector<pt::ptree*> subtrees;
+    std::vector<const pt::ptree*> subtrees;
     for (auto &i : tree) {
         if (i.first == "<xmlattr>") {
             for (auto &j : i.second) {
@@ -293,7 +319,7 @@ static std::vector<pt::ptree*> locate_subtree_with_attribute(
 /// </some_tag>
 /// Return true if at least one such subtree exists, otherwise false.
 static bool is_subtree_with_attribute_present(
-    pt::ptree &tree,
+    const pt::ptree &tree,
     const std::string &attribute_name,
     const std::string &attribute_value
 ) {
@@ -388,7 +414,7 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
         auto &&report_config_nodes = locate_subtree_with_attribute(
             tree, "name", "lte-rrc.ReportConfigToAddMod_element"
         );
-        std::vector<pt::ptree*> report_config_id_nodes, event_id_nodes;
+        std::vector<const pt::ptree*> report_config_id_nodes, event_id_nodes;
         for (auto ptr : report_config_nodes) {
             auto &&ret = locate_subtree_with_attribute(
                 *ptr, "name", "lte-rrc.reportConfigId"
@@ -455,7 +481,7 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
         auto &&report_config_remove_nodes = locate_subtree_with_attribute(
             tree, "name", "lte-rrc.reportConfigToRemoveList"
         );
-        std::vector<pt::ptree*> remove_config_id_nodes;
+        std::vector<const pt::ptree*> remove_config_id_nodes;
         for (auto ptr : report_config_remove_nodes) {
             auto &&ret = locate_subtree_with_attribute(
                 *ptr, "name", "lte-rrc.ReportConfigId"
@@ -486,7 +512,7 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
         auto &&measure_id_to_add_nodes = locate_subtree_with_attribute(
             tree, "name", "lte-rrc.MeasIdToAddMod_element"
         );
-        std::vector<pt::ptree*> added_measure_id_nodes, measure_id_nodes;
+        std::vector<const pt::ptree*> added_measure_id_nodes, measure_id_nodes;
         for (auto ptr : measure_id_to_add_nodes) {
             auto &&ret = locate_subtree_with_attribute(
                 *ptr, "name", "lte-rrc.reportConfigId"
@@ -552,7 +578,7 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
         auto &&measure_id_to_remove_nodes = locate_subtree_with_attribute(
             tree, "name", "lte-rrc.measIdToRemoveList"
         );
-        std::vector<pt::ptree*> removed_measure_id_nodes;
+        std::vector<const pt::ptree*> removed_measure_id_nodes;
         for (auto ptr : measure_id_to_remove_nodes) {
             auto &&ret = locate_subtree_with_attribute(
                 *ptr, "name", "lte-rrc.MeasId"
@@ -580,7 +606,7 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
         auto &&measurement_result_nodes = locate_subtree_with_attribute(
             tree, "name", "lte-rrc.measResults_element"
         );
-        std::vector<pt::ptree*> measurement_id_nodes;
+        std::vector<const pt::ptree*> measurement_id_nodes;
         for (auto ptr : measurement_result_nodes) {
             auto &&ret = locate_subtree_with_attribute(
                 *ptr, "name", "lte-rrc.measId"
@@ -626,6 +652,7 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
 
     bool rrc_connection_reconfiguration_present = false;
     bool mobility_control_info_present = false;
+    std::string target_cells;
     {
         auto &&reconf_nodes = locate_subtree_with_attribute(
             tree, "showname", "rrcConnectionReconfiguration"
@@ -640,6 +667,17 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
                     break;
                 }
             }
+        }
+    }
+    if (mobility_control_info_present) {
+        auto &&target_physic_cells = locate_subtree_with_attribute(
+            tree, "name", "lte-rrc.targetPhysCellId"
+        );
+        for (auto ptr : target_physic_cells) {
+            if (!target_cells.empty()) {
+                target_cells += ", ";
+            }
+            target_cells += ptr->get<std::string>("<xmlattr>.showname");
         }
     }
 
@@ -686,6 +724,7 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
          rrc_connection_reestablishment_reject_present,
          rrc_connection_reconfiguration_present,
          mobility_control_info_present,
+         target_cells = std::move(target_cells),
          connection_reestablishment_cause
             = std::move(connection_reestablishment_cause),
          rrc_connection_reconfiguration_complete_present,
@@ -767,7 +806,8 @@ static void extract_rrc_ota_packet(pt::ptree &&tree, Job &&job) {
                 (*g_output) << timestamp << " $ rrcConnectionReconfiguration $"
                             << " mobilityControlInfo: ";
                 if (mobility_control_info_present) {
-                    (*g_output) << '1';
+                    (*g_output) << "1, "
+                                << target_cells;
                 } else {
                     (*g_output) << '0';
                 }
@@ -1086,52 +1126,80 @@ static void extract_pdcp_cipher_data_pdu_packet(
     pt::ptree &&tree, Job &&job) {
     std::string timestamp = get_packet_time_stamp(tree);
 
-    // Extract uplink PDCP PDU size.
-    std::vector<std::string> ul_pdu_sizes;
-    {
-        auto &&pdu_packet_list = locate_subtree_with_attribute(
-            tree, "key", "PDCPUL CIPH DATA"
-        );
-        for (auto pdu_packets : pdu_packet_list) {
-            auto &&sizes = locate_subtree_with_attribute(
-                *pdu_packets, "key", "PDU Size"
-            );
-            for (auto size : sizes) {
-                ul_pdu_sizes.emplace_back(size->data());
-            }
-        }
-    }
+    std::string err_msg;
 
-    // Extract downlink PDCP PDU size.
-    std::vector<std::string> dl_pdu_sizes;
-    {
-        auto &&pdu_packet_list = locate_subtree_with_attribute(
-            tree, "key", "PDCPUL CIPH DATA"
+    auto extract_size_and_bearer_id = [&tree, &err_msg, &timestamp] (
+        const std::string &packet_type,
+        std::vector<std::string> &pdu_size_vec,
+        std::vector<std::string> &bearer_id_vec) {
+        auto &&pdu_packet_lists = locate_subtree_with_attribute(
+            tree, "key", packet_type
         );
-        for (auto pdu_packets : pdu_packet_list) {
-            auto &&sizes = locate_subtree_with_attribute(
-                *pdu_packets, "key", "PDU Size"
+        for (auto pdu_packet_list : pdu_packet_lists) {
+            auto &&pdu_packets = locate_subtree_with_attribute(
+                *pdu_packet_list, "type", "dict"
             );
-            for (auto size : sizes) {
-                dl_pdu_sizes.emplace_back(size->data());
+            std::string size, bearer_id;
+            for (auto pdu_packet : pdu_packets) {
+                for (auto packet_info : pdu_packet->get_child("dict")) {
+                    if (is_tree_having_attribute(
+                        packet_info.second, "key", "Bearer ID")) {
+                        bearer_id
+                            = packet_info.second.get_value(std::string());
+                    } else if (is_tree_having_attribute(
+                        packet_info.second, "key", "PDU Size")) {
+                        size = packet_info.second.get_value(std::string());
+                    }
+                }
             }
+            if_unlikely (size.empty()) {
+                err_msg += "Warning (packet timestamp = " + timestamp + "):\n"
+                         + "Found an " + packet_type + " packet with size = 0."
+                         + " Skipping...\n";
+                continue;
+            }
+            if_unlikely (bearer_id.empty()) {
+                err_msg += "Warning (packet timestamp = " + timestamp + "):\n"
+                         + "Found an " + packet_type
+                         + " packet with no bearer id."
+                         + " Skipping...\n";
+                continue;
+            }
+            pdu_size_vec.emplace_back(std::move(size));
+            bearer_id_vec.emplace_back(std::move(bearer_id));
         }
-    }
+    };
+
+    // Extract uplink PDCP PDU size and bearer id.
+    std::vector<std::string> ul_pdu_sizes, ul_bearer_id;
+    extract_size_and_bearer_id("PDCPUL CIPH DATA", ul_pdu_sizes, ul_bearer_id);
+
+    // Extract downlink PDCP PDU size and bearer id.
+    std::vector<std::string> dl_pdu_sizes, dl_bearer_id;
+    extract_size_and_bearer_id("PDCPDL CIPH DATA", dl_pdu_sizes, dl_bearer_id);
 
     insert_ordered_task(
         job.job_num,
         [timestamp = std::move(timestamp),
+         err_msg = std::move(err_msg),
          ul_pdu_sizes = std::move(ul_pdu_sizes),
-         dl_pdu_sizes = std::move(dl_pdu_sizes)] {
-             for (const auto &i : ul_pdu_sizes) {
-                (*g_output) << timestamp
-                            << " $ LTE_PDCP_UL_Cipher_Data_PDU $ "
-                            << "PDU Size: " << i << std::endl;
+         ul_bearer_id = std::move(ul_bearer_id),
+         dl_pdu_sizes = std::move(dl_pdu_sizes),
+         dl_bearer_id = std::move(dl_bearer_id)] {
+             std::cerr << err_msg;
+             for (auto i = 0; i < ul_pdu_sizes.size(); ++i) {
+                 (*g_output) << timestamp
+                             << " $ LTE_PDCP_UL_Cipher_Data_PDU $ "
+                             << "PDU Size: " << ul_pdu_sizes[i]
+                             << ", Bearer ID: " << ul_bearer_id[i]
+                             << std::endl;
              }
-             for (const auto &i : dl_pdu_sizes) {
-                (*g_output) << timestamp
-                            << " $ LTE_PDCP_DL_Cipher_Data_PDU $ "
-                            << "PDU Size: " << i << std::endl;
+             for (auto i = 0; i < dl_pdu_sizes.size(); ++i) {
+                 (*g_output) << timestamp
+                             << " $ LTE_PDCP_DL_Cipher_Data_PDU $ "
+                             << "PDU Size: " << dl_pdu_sizes[i]
+                             << ", Bearer ID: " << dl_bearer_id[i]
+                             << std::endl;
              }
         }
     );
@@ -1274,7 +1342,7 @@ static void extract_lte_mac_rach_attempt_packet(
             if (!results.empty()) {
                 results += ", ";
             }
-            results += ptr->data();
+            results += "Result: " + ptr->data();
         }
     }
 
@@ -1309,7 +1377,7 @@ static void extract_lte_mac_rach_trigger_packet(
             if (!reasons.empty()) {
                 reasons += ", ";
             }
-            reasons += ptr->data();
+            reasons += "Reason: " + ptr->data();
         }
     }
 
