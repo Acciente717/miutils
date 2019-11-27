@@ -1386,7 +1386,10 @@ static void extract_lte_mac_rach_trigger_packet(
         [timestamp = std::move(timestamp),
          reasons = std::move(reasons)] {
             (*g_output) << timestamp << " $ LTE_MAC_Rach_Trigger $ "
-                        << reasons << std::endl;
+                        << reasons
+                        << ", LastPDCPPacketTimestamp: "
+                        << g_last_pdcp_packet_timestamp
+                        << std::endl;
         }
     );
 }
