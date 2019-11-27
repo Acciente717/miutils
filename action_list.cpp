@@ -1151,22 +1151,23 @@ static void extract_pdcp_cipher_data_pdu_packet(
                         size = packet_info.second.get_value(std::string());
                     }
                 }
+                if_unlikely (size.empty()) {
+                    err_msg += "Warning (packet timestamp = " + timestamp
+                            + "):\n" + "Found an " + packet_type
+                            + " packet with size = 0."
+                            + " Skipping...\n";
+                    continue;
+                }
+                if_unlikely (bearer_id.empty()) {
+                    err_msg += "Warning (packet timestamp = " + timestamp
+                            + "):\n" + "Found an " + packet_type
+                            + " packet with no bearer id."
+                            + " Skipping...\n";
+                    continue;
+                }
+                pdu_size_vec.emplace_back(std::move(size));
+                bearer_id_vec.emplace_back(std::move(bearer_id));
             }
-            if_unlikely (size.empty()) {
-                err_msg += "Warning (packet timestamp = " + timestamp + "):\n"
-                         + "Found an " + packet_type + " packet with size = 0."
-                         + " Skipping...\n";
-                continue;
-            }
-            if_unlikely (bearer_id.empty()) {
-                err_msg += "Warning (packet timestamp = " + timestamp + "):\n"
-                         + "Found an " + packet_type
-                         + " packet with no bearer id."
-                         + " Skipping...\n";
-                continue;
-            }
-            pdu_size_vec.emplace_back(std::move(size));
-            bearer_id_vec.emplace_back(std::move(bearer_id));
         }
     };
 
