@@ -52,6 +52,8 @@ static void extract_lte_mac_rach_attempt_packet(
     pt::ptree &&tree, Job &&job);
 static void extract_lte_mac_rach_trigger_packet(
     pt::ptree &&tree, Job &&job);
+static void extract_lte_phy_pdsch_stat_packet(
+    pt::ptree &&tree, Job &&job);
 
 /// The list storing all `ConditionalAction`s.
 ActionList g_action_list;
@@ -97,15 +99,17 @@ void initialize_action_list() {
     );
 
     g_action_list.push_back(
-        // {
-        //     [] (const pt::ptree &tree, const Job &job) {
-        //         return
-        //             is_packet_having_type(tree, "LTE_PDCP_UL_Cipher_Data_PDU")
-        //             ||
-        //             is_packet_having_type(tree, "LTE_PDCP_DL_Cipher_Data_PDU");
-        //     },
-        //     extract_pdcp_cipher_data_pdu_packet
-        // }
+        /*
+        {
+            [] (const pt::ptree &tree, const Job &job) {
+                return
+                    is_packet_having_type(tree, "LTE_PDCP_UL_Cipher_Data_PDU")
+                    ||
+                    is_packet_having_type(tree, "LTE_PDCP_DL_Cipher_Data_PDU");
+            },
+            extract_pdcp_cipher_data_pdu_packet
+        }
+        */
         {
             [] (const pt::ptree &tree, const Job &job) {
                 return
@@ -160,6 +164,17 @@ void initialize_action_list() {
             extract_lte_mac_rach_trigger_packet
         }
     );
+
+    // g_action_list.push_back(
+    //     {
+    //         [] (const pt::ptree &tree, const Job &job) {
+    //             return is_packet_having_type(
+    //                 tree, "LTE_PHY_PDSCH_Stat_Indication"
+    //             );
+    //         },
+    //         extract_lte_phy_pdsch_stat_packet
+    //     }
+    // );
 
     // Predicate: always true
     // Action: do nothing
@@ -289,6 +304,9 @@ static void print_time_of_mobility_control_info(pt::ptree &&tree, Job &&job) {
 /// Return the pointers to the roots of the subtrees, i.e. all the subtrees
 /// starting at `some_tag` with the attribute name `attribute_name` and
 /// attribute value `attribute_value`.
+///
+/// This function *does not* guarantee that all returned trees are disjoint,
+/// i.e. a returned node might be the decendent of another returned node.
 static std::vector<const pt::ptree*> locate_subtree_with_attribute(
     const pt::ptree &tree,
     const std::string &attribute_name,
@@ -307,6 +325,46 @@ static std::vector<const pt::ptree*> locate_subtree_with_attribute(
             auto &&ret = locate_subtree_with_attribute(
                 i.second, attribute_name, attribute_value
             );
+            subtrees.insert(subtrees.end(), ret.begin(), ret.end());
+        }
+    }
+    return subtrees;
+}
+
+/// Start from the root `tree`, recursively find the following subtrees:
+/// <some_tag attribute_name=attribute_value ... >
+///     ...
+/// </some_tag>
+/// Return the pointers to the roots of the subtrees, i.e. all the subtrees
+/// starting at `some_tag` with the attribute name `attribute_name` and
+/// attribute value `attribute_value`.
+///
+/// This function guarantees that all returned trees are disjoint, i.e.
+/// no node is the decendent of any other returned nodes.
+static std::vector<const pt::ptree*> locate_disjoint_subtree_with_attribute(
+    const pt::ptree &tree,
+    const std::string &attribute_name,
+    const std::string &attribute_value
+) {
+    std::vector<const pt::ptree*> subtrees;
+    bool hit = false;
+    for (auto &i : tree) {
+        if (i.first == "<xmlattr>") {
+            for (auto &j : i.second) {
+                if (j.first == attribute_name
+                    && j.second.data() == attribute_value) {
+                    subtrees.push_back(&tree);
+                    hit = true;
+                    break;
+                }
+            }
+            if (hit) break;
+        }
+    }
+    if (!hit) {
+        for (auto &i : tree) {
+            auto &&ret = locate_disjoint_subtree_with_attribute(
+                i.second, attribute_name, attribute_value);
             subtrees.insert(subtrees.end(), ret.begin(), ret.end());
         }
     }
@@ -1391,6 +1449,71 @@ static void extract_lte_mac_rach_trigger_packet(
                         << ", LastPDCPPacketTimestamp: "
                         << g_last_pdcp_packet_timestamp
                         << std::endl;
+        }
+    );
+}
+
+static void extract_lte_phy_pdsch_stat_packet(
+    pt::ptree &&tree, Job &&job) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+
+    auto extract_key_value = [](const pt::ptree &tree) {
+        std::vector<std::string> trans_block_info_lst;
+        auto &&trans_block_items = locate_disjoint_subtree_with_attribute(
+            tree, "type", "dict"
+        );
+        for (const auto &trans_block_item : trans_block_items) {
+            std::string single_result;
+            for (const auto &pair : trans_block_item->get_child("dict")) {
+                if (!single_result.empty()) {
+                    single_result += ", ";
+                }
+                single_result += pair.second.get<std::string>("<xmlattr>.key");
+                single_result += ": ";
+                single_result += pair.second.get_value<std::string>();
+            }
+            trans_block_info_lst.emplace_back(std::move(single_result));
+        }
+        return trans_block_info_lst;
+    };
+
+    std::string final_result;
+    auto &&record_lists = locate_disjoint_subtree_with_attribute(
+        tree, "key", "Records"
+    );
+    for (const auto &record_list : record_lists) {
+        auto &&records = locate_disjoint_subtree_with_attribute(
+            *record_list, "type", "dict"
+        );
+        for (const auto &record : records) {
+            std::string single_result;
+            std::vector<std::string> trans_block_info_lst;
+            for (const auto &item : record->get_child("dict")) {
+                auto &&key = item.second.get<std::string>("<xmlattr>.key");
+                if (key == "Transport Blocks") {
+                    trans_block_info_lst = extract_key_value(item.second);
+                } else {
+                    if (!single_result.empty()) single_result += ", ";
+                    single_result += key;
+                    single_result += ": "
+                                   + item.second.get_value<std::string>();
+                }
+            }
+            for (const auto &trans_block_info : trans_block_info_lst) {
+                final_result += timestamp;
+                final_result += " $ LTE_PHY_PDSCH_Stat_Indication $ ";
+                final_result += single_result;
+                if (!single_result.empty()) final_result += ", ";
+                final_result += trans_block_info;
+                final_result += '\n';
+            }
+        }
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [final_result = std::move(final_result)] {
+            (*g_output) << final_result;
         }
     );
 }
