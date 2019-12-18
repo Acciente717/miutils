@@ -54,6 +54,8 @@ static void extract_lte_mac_rach_trigger_packet(
     pt::ptree &&tree, Job &&job);
 static void extract_lte_phy_pdsch_stat_packet(
     pt::ptree &&tree, Job &&job);
+static void extract_lte_phy_pdsch_packet(
+    pt::ptree &&tree, Job &&job);
 
 /// The list storing all `ConditionalAction`s.
 ActionList g_action_list;
@@ -165,16 +167,27 @@ void initialize_action_list() {
         }
     );
 
-    // g_action_list.push_back(
-    //     {
-    //         [] (const pt::ptree &tree, const Job &job) {
-    //             return is_packet_having_type(
-    //                 tree, "LTE_PHY_PDSCH_Stat_Indication"
-    //             );
-    //         },
-    //         extract_lte_phy_pdsch_stat_packet
-    //     }
-    // );
+    g_action_list.push_back(
+        {
+            [] (const pt::ptree &tree, const Job &job) {
+                return is_packet_having_type(
+                    tree, "LTE_PHY_PDSCH_Stat_Indication"
+                );
+            },
+            extract_lte_phy_pdsch_stat_packet
+        }
+    );
+
+    g_action_list.push_back(
+        {
+            [] (const pt::ptree &tree, const Job &job) {
+                return is_packet_having_type(
+                    tree, "LTE_PHY_PDSCH_Packet"
+                );
+            },
+            extract_lte_phy_pdsch_packet
+        }
+    );
 
     // Predicate: always true
     // Action: do nothing
@@ -1514,6 +1527,50 @@ static void extract_lte_phy_pdsch_stat_packet(
         job.job_num,
         [final_result = std::move(final_result)] {
             (*g_output) << final_result;
+        }
+    );
+}
+
+static void extract_lte_phy_pdsch_packet(
+    pt::ptree &&tree, Job &&job) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+
+    const char * const target_keys[] = {
+        "System Frame Number",
+        "Subframe Number",
+        "Number of Tx Antennas(M)",
+        "Number of Rx Antennas(N)",
+        "TBS 0",
+        "MCS 0",
+        "TBS 1",
+        "MCS 1"
+    };
+
+    std::string result;
+    for (const auto &pair : tree.get_child("dm_log_packet")) {
+        char const *match_key = nullptr;
+        for (auto key : target_keys) {
+            if (pair.second.get<std::string>("<xmlattr>.key") == key) {
+                match_key = key;
+                break;
+            }
+        }
+        if (match_key == nullptr) continue;
+        if (!result.empty()) {
+            result += ", ";
+        }
+        result += match_key;
+        result += ": ",
+        result += pair.second.get_value<std::string>();
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [timestamp = std::move(timestamp),
+         result = std::move(result)] {
+            (*g_output) << timestamp
+                        << " $ LTE_PHY_PDSCH_Packet $ "
+                        << result << std::endl;
         }
     );
 }
