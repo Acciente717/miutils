@@ -140,9 +140,12 @@ void parse_option(int argc, char **argv) {
     visible_opts.add_options()
         ("help,h", "produce help message")
         ("thread,f", po::value<int>()->default_value(THREAD_DEFAULT),
-            "set the thread number of the extractors")
+            "Set the thread number of the extractors.")
         ("output,o", po::value<std::string>(),
-            "set the output file name (default to stdout)");
+            "Set the output file name (default to stdout).")
+        ("range", po::value<std::string>(),
+            "Set the timestamp range file name. Each line in the file "
+            "should contains two unix timestamps separated by a space.");
 
     /// All internal options. (Arguments are automatically transformed to
     /// the --input option.)
@@ -223,7 +226,7 @@ void parse_option(int argc, char **argv) {
         );
         if (file->fail()) {
             throw ArgumentError(
-                    "Failed to open input file: "
+                    "Failed to open output file: "
                     + ("\"" + output + "\"")
             );
         }
@@ -236,6 +239,22 @@ void parse_option(int argc, char **argv) {
             [](std::ostream *p) {}
         );
         g_output = std::move(file);
+    }
+
+    // If the range file is provided, read and store them to the global vector.
+    if (vm.count("range")) {
+        const auto &filename = vm["range"].as<std::string>();
+        auto file = std::ifstream(filename);
+        if (file.fail()) {
+            throw ArgumentError(
+                "Failed to open range file: "
+                + ("\"" + filename + "\"")
+            );
+        }
+        time_t left, right;
+        while (file >> left >> right) {
+            g_valid_time_range.emplace_back(left, right);
+        }
     }
 }
 

@@ -29,6 +29,7 @@
 #include "exceptions.hpp"
 #include "extractor.hpp"
 #include "macros.hpp"
+#include <ctime>
 #include <string>
 #include <iostream>
 
@@ -57,6 +58,8 @@ static void extract_lte_phy_pdsch_stat_packet(
 static void extract_lte_phy_pdsch_packet(
     pt::ptree &&tree, Job &&job);
 static void extract_lte_phy_serv_cell_measurement(
+    pt::ptree &&tree, Job &&job);
+static void echo_packet_within_time_range(
     pt::ptree &&tree, Job &&job);
 
 /// The list storing all `ConditionalAction`s.
@@ -201,6 +204,13 @@ void initialize_action_list() {
             extract_lte_phy_serv_cell_measurement
         }
     );
+
+    // g_action_list.push_back(
+    //     {
+    //         [](const pt::ptree &tree, const Job &job) { return true; },
+    //         echo_packet_within_time_range
+    //     }
+    // );
 
     // Predicate: always true
     // Action: do nothing
@@ -1630,6 +1640,52 @@ static void extract_lte_phy_serv_cell_measurement(
         job.job_num,
         [result = std::move(result)] {
             (*g_output) << result;
+        }
+    );
+}
+
+/// This function compares the timestamp of the current packet and
+/// the ranges provided by the --range argument. If the current timestamp
+/// falls in any one of the time range, then the XML string is printed to
+/// the output file without any modification, otherwise silently do nothing.
+static void echo_packet_within_time_range(
+    pt::ptree &&tree, Job &&job) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+    tm s;
+    auto cnt = sscanf(timestamp.c_str(), "%d-%d-%d %d:%d:%d.%*d",
+                      &s.tm_year, &s.tm_mon, &s.tm_mday,
+                      &s.tm_hour, &s.tm_min, &s.tm_sec);
+    if (cnt != 6) {
+        insert_ordered_task(
+            job.job_num,
+            [timestamp = std::move(timestamp)] {
+                std::cerr << "Warning (packet timestamp = "
+                          + timestamp + "): \n"
+                          << "Timestamp is not in the format "
+                          << "\"%d-%d-%d %d:%d:%d.%*d\"\n";
+            }
+        );
+        return;
+    }
+    s.tm_year -= 1900;
+    s.tm_mon -= 1;
+    auto rawtime = mktime(&s) + 28800;
+    bool within_range = false;
+    for (auto range : g_valid_time_range) {
+        if (range.first <= rawtime && rawtime <= range.second) {
+            within_range = true;
+            break;
+        }
+    }
+
+    std::string content;
+    if (within_range) {
+        content = std::move(job.xml_string);
+    }
+    insert_ordered_task(
+        job.job_num,
+        [content = std::move(content)] {
+            (*g_output) << content;
         }
     );
 }

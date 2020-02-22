@@ -9,6 +9,7 @@
 #include <functional>
 #include <iostream>
 #include <vector>
+#include <ctime>
 
 /// The states for the state machine in the main function.
 enum class MainState {
@@ -111,6 +112,9 @@ extern bool g_first_pdcp_packet_after_handover;
 
 /// Disruption events, see definition of the structure for details.
 extern DisruptionEvents g_distuption_events;
+
+/// Valid ranges of timestamps, provided by --range argument.
+extern std::vector<std::pair<time_t, time_t>> g_valid_time_range;
 
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception
