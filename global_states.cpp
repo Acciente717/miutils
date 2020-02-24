@@ -42,6 +42,9 @@ DisruptionEvents g_distuption_events = {
 /// Valid ranges of timestamps, provided by --range argument.
 std::vector<std::pair<time_t, time_t>> g_valid_time_range;
 
+/// Enabled extractor names.
+std::vector<std::string> g_enabled_extractors;
+
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception
 /// pointer.

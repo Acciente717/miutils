@@ -50,9 +50,8 @@ static void smain() {
     // Run the state machine. It will exit on InOrderExecutorFinished state.
     while (true) {
         switch (g_main_state) {
-        // Initialize the action list and start all sub threads.
+        // Start all sub threads.
         case MainState::Initializing:
-            initialize_action_list();
             g_main_state = MainState::AllRunning;
             main_state_lck.unlock();
             start_splitter();
@@ -138,14 +137,37 @@ void parse_option(int argc, char **argv) {
     /// All visible options (those can be seen by --help).
     po::options_description visible_opts("Options");
     visible_opts.add_options()
-        ("help,h", "produce help message")
-        ("thread,f", po::value<int>()->default_value(THREAD_DEFAULT),
-            "Set the thread number of the extractors.")
+        ("help,h", "Produce help message.\n")
+        ("thread,j", po::value<int>()->default_value(THREAD_DEFAULT),
+            "Set the thread number of the extractors.\n")
         ("output,o", po::value<std::string>(),
-            "Set the output file name (default to stdout).")
-        ("range", po::value<std::string>(),
-            "Set the timestamp range file name. Each line in the file "
-            "should contains two unix timestamps separated by a space.");
+            "Set the output file name (default to stdout).\n")
+        ("filter", po::value<std::string>(),
+            "Enable filter mode. "
+            "Set the timestamp range file path. Each line in the file "
+            "should contains two unix timestamps separated by a space. "
+            "The output only keeps packets that lie in the "
+            "time intervals provided by the range file. "
+            "This option is mutually exclusive "
+            "with the \"extract\" mode.\n")
+        ("extract", po::value<std::string>(),
+            "Enable extractor mode.\n"
+            "Example: \"--enable rrc_ota,lte_phy_pdsch\".\n\n"
+            "Available extractors:\n"
+            "[rrc_ota, rrc_serv_cell_info, pdcp_cipher_data_pdu, "
+            "nas_emm_ota_incoming, nas_emm_ota_outgoing, "
+            "mac_rach_attempt, mac_rach_trigger, "
+            "phy_pdsch_stat, phy_pdsch, "
+            "phy_serv_cell_meas, action_pdcp_cipher_data_pdu].\n\n"
+            "Extractors preceeding with \"action_\" is a compound "
+            "function that operate across packets, and might "
+            "interfere with other extractors. DO NOT simultaneously "
+            "enable those which have conflict.\n"
+            "Known conflicts:\n"
+            "1. \"action_pdcp_cipher_data_pdu\" against "
+            "\"pdcp_cipher_data_pdu.\"\n\n"
+            "This option is mutially exclusive "
+            "with the \"filter\" mode.");
 
     /// All internal options. (Arguments are automatically transformed to
     /// the --input option.)
@@ -164,7 +186,8 @@ void parse_option(int argc, char **argv) {
 
     /// If --help or -h is set, show the help message and exit.
     if (vm.count("help")) {
-        std::cout << "Usage: parsexml [options] [file ...]" << std::endl;
+        std::cout << "Usage: " + std::string(argv[0])
+                  << " [options] [input_file ...]" << std::endl;
         std::cout << "If no input file is provided, it reads from stdin."
                   << std::endl;
         std::cout << visible_opts << std::endl;
@@ -241,13 +264,14 @@ void parse_option(int argc, char **argv) {
         g_output = std::move(file);
     }
 
-    // If the range file is provided, read and store them to the global vector.
-    if (vm.count("range")) {
-        const auto &filename = vm["range"].as<std::string>();
+    // If the range file is provided, read and store them to
+    // the global vector.
+    if (vm.count("filter")) {
+        const auto &filename = vm["filter"].as<std::string>();
         auto file = std::ifstream(filename);
         if (file.fail()) {
             throw ArgumentError(
-                "Failed to open range file: "
+                "Failed to open filter file: "
                 + ("\"" + filename + "\"")
             );
         }
@@ -255,6 +279,44 @@ void parse_option(int argc, char **argv) {
         while (file >> left >> right) {
             g_valid_time_range.emplace_back(left, right);
         }
+        initialize_action_list_with_filter();
+    }
+
+    if (vm.count("extract")) {
+        // If both the "filter" and "extract" options are set,
+        // exit with error.
+        if (vm.count("filter")) {
+            throw ArgumentError(
+                "Both \"extract\" and \"filter\" options are "
+                "set, however they are MUTUAL EXCLUSIVE."
+            );
+        }
+
+        // Split the string by ",", and stores them to the global
+        // vector.
+        auto extractors_str = vm["extract"].as<std::string>();
+        size_t start = 0, end;
+        while (true) {
+            end = extractors_str.find(',', start);
+            auto len = end == std::string::npos
+                     ? std::string::npos
+                     : end - start;
+            g_enabled_extractors.emplace_back(
+                extractors_str.substr(start, len)
+            );
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+        initialize_action_list_with_extractors();
+    }
+
+    if(vm.count("filter") == 0 && vm.count("extract") == 0) {
+        throw ArgumentError(
+            "Neigher \"extract\" nor \"filter\" mode is "
+            "enabled."
+        );
     }
 }
 

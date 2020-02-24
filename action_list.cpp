@@ -32,6 +32,40 @@
 #include <ctime>
 #include <string>
 #include <iostream>
+#include <unordered_map>
+
+enum class ExtractorEnum {
+    RRC_OTA,
+    RRC_SERV_CELL_INFO,
+    PDCP_CIPHER_DATA_PDU,
+    LTE_NAS_EMM_OTA_INCOMING,
+    LTE_NAS_EMM_OTA_OUTGOING,
+    LTE_MAC_RACH_ATTEMPT,
+    LTE_MAC_RACH_TRIGGER,
+    LTE_PHY_PDSCH_STAT,
+    LTE_PHY_PDSCH,
+    LTE_PHY_SERV_CELL_MEAS,
+    ACTION_PDCP_CIPHER_DATA_PDU,
+    NOP
+};
+
+/// Map the extractor name string to the corresponding enum.
+static const std::unordered_map<std::string,
+                                ExtractorEnum>
+    extractor_name_to_enum = {
+        {"rrc_ota", ExtractorEnum::RRC_OTA},
+        {"rrc_serv_cell_info", ExtractorEnum::RRC_SERV_CELL_INFO},
+        {"pdcp_cipher_data_pdu", ExtractorEnum::PDCP_CIPHER_DATA_PDU},
+        {"nas_emm_ota_incoming", ExtractorEnum::LTE_NAS_EMM_OTA_INCOMING},
+        {"nas_emm_ota_outgoing", ExtractorEnum::LTE_NAS_EMM_OTA_OUTGOING},
+        {"mac_rach_attempt", ExtractorEnum::LTE_MAC_RACH_ATTEMPT},
+        {"mac_rach_trigger", ExtractorEnum::LTE_MAC_RACH_TRIGGER},
+        {"phy_pdsch_stat", ExtractorEnum::LTE_PHY_PDSCH_STAT},
+        {"phy_pdsch", ExtractorEnum::LTE_PHY_PDSCH},
+        {"phy_serv_cell_meas", ExtractorEnum::LTE_PHY_SERV_CELL_MEAS},
+        {"action_pdcp_cipher_data_pdu",
+         ExtractorEnum::ACTION_PDCP_CIPHER_DATA_PDU}
+    };
 
 static bool is_packet_having_type(
     const pt::ptree &tree, const std::string type_id);
@@ -74,7 +108,7 @@ ActionList g_action_list;
 /// Even if we have no output on the current input XML tree, we should
 /// produce a dummy output task, which essentially output nothing, to the
 /// in-order executor module.
-void initialize_action_list() {
+void initialize_action_list_with_extractors() {
     // Below is an example.
     // Predicate: find the "mobilityControlInfo is present" string recursively.
     // Action: print the timestamp of this packet.
@@ -87,131 +121,218 @@ void initialize_action_list() {
     //     }
     // );
 
+    // Enable the extractors given by the program option.
+    for (auto i : g_enabled_extractors) {
+        auto pextractor = extractor_name_to_enum.find(i);
+        ExtractorEnum extractor;
+        if (pextractor == extractor_name_to_enum.end()) {
+            extractor = ExtractorEnum::NOP;
+        } else {
+            extractor = pextractor->second;
+        }
+        switch (extractor) {
+        case ExtractorEnum::RRC_OTA:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_RRC_OTA_Packet"
+                        );
+                    },
+                    extract_rrc_ota_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_RRC_OTA_Packet" << std::endl;
+            break;
+        case ExtractorEnum::RRC_SERV_CELL_INFO:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_RRC_Serv_Cell_Info"
+                        );
+                    },
+                    extract_rrc_serv_cell_info_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_RRC_Serv_Cell_Info" << std::endl;
+            break;
+        case ExtractorEnum::PDCP_CIPHER_DATA_PDU:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return
+                            is_packet_having_type(
+                                tree, "LTE_PDCP_UL_Cipher_Data_PDU"
+                            )
+                            ||
+                            is_packet_having_type(
+                                tree, "LTE_PDCP_DL_Cipher_Data_PDU"
+                            );
+                    },
+                    extract_pdcp_cipher_data_pdu_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_PDCP_UL_Cipher_Data_PDU "
+                      << "and LTE_PDCP_DL_Cipher_Data_PDU"
+                      << std::endl;
+            break;
+        case ExtractorEnum::ACTION_PDCP_CIPHER_DATA_PDU:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return
+                            is_packet_having_type(
+                                tree, "LTE_PDCP_UL_Cipher_Data_PDU"
+                            )
+                            ||
+                            is_packet_having_type(
+                                tree, "LTE_PDCP_DL_Cipher_Data_PDU"
+                            );
+                    },
+                    update_pdcp_cipher_data_pdu_packet_timestamp
+                }
+            );
+            std::cerr << "Compound extractor enabled: "
+                      << "act on LTE_PDCP_UL_Cipher_Data_PDU "
+                      << "and LTE_PDCP_DL_Cipher_Data_PDU"
+                      << std::endl;
+            break;
+        case ExtractorEnum::LTE_NAS_EMM_OTA_INCOMING:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_NAS_EMM_OTA_Incoming_Packet"
+                        );
+                    },
+                    extract_lte_nas_emm_ota_incoming_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_NAS_EMM_OTA_Incoming_Packet" << std::endl;
+            break;
+        case ExtractorEnum::LTE_NAS_EMM_OTA_OUTGOING:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_NAS_EMM_OTA_Outgoing_Packet"
+                        );
+                    },
+                    extract_lte_nas_emm_ota_outgoing_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_NAS_EMM_OTA_Outgoing_Packet" << std::endl;
+            break;
+        case ExtractorEnum::LTE_MAC_RACH_ATTEMPT:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_MAC_Rach_Attempt"
+                        );
+                    },
+                    extract_lte_mac_rach_attempt_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_MAC_Rach_Attempt" << std::endl;
+            break;
+        case ExtractorEnum::LTE_MAC_RACH_TRIGGER:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_MAC_Rach_Trigger"
+                        );
+                    },
+                    extract_lte_mac_rach_trigger_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_MAC_Rach_Trigger" << std::endl;
+            break;
+        case ExtractorEnum::LTE_PHY_PDSCH_STAT:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_PHY_PDSCH_Stat_Indication"
+                        );
+                    },
+                    extract_lte_phy_pdsch_stat_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_PHY_PDSCH_Stat_Indication" << std::endl;
+            break;
+        case ExtractorEnum::LTE_PHY_PDSCH:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_PHY_PDSCH_Packet"
+                        );
+                    },
+                    extract_lte_phy_pdsch_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_PHY_PDSCH_Packet" << std::endl;
+            break;
+        case ExtractorEnum::LTE_PHY_SERV_CELL_MEAS:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_PHY_Serv_Cell_Measurement"
+                        );
+                    },
+                    extract_lte_phy_serv_cell_measurement
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_PHY_Serv_Cell_Measurement" << std::endl;
+            break;
+        case ExtractorEnum::NOP:
+            std::cerr << "Warning: encountered unknown extractor "
+                      << "(" << i << ")" << std::endl;
+            break;
+        default:
+            throw ProgramBug(
+                "Switch case list in initialize_action_list() "
+                "is not exhaustive. Ran into default branch."
+            );
+        }
+    }
+
+    // Predicate: always true
+    // Action: do nothing
     g_action_list.push_back(
         {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(tree, "LTE_RRC_OTA_Packet");
-            },
-            extract_rrc_ota_packet
+            [](const pt::ptree &tree, const Job &job) { return true; },
+            [](pt::ptree &&tree, Job &&job) {
+                insert_ordered_task(job.job_num, []{});
+            }
         }
     );
+}
 
+/// Initialize the `g_action_list` to do the filter work. Due to the same
+/// reason as `initialize_action_list_with_extractors()`, we must put
+/// a dummy function at the end of the list.
+void initialize_action_list_with_filter() {
     g_action_list.push_back(
         {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(tree, "LTE_RRC_Serv_Cell_Info");
-            },
-            extract_rrc_serv_cell_info_packet
+            [](const pt::ptree &tree, const Job &job) { return true; },
+            echo_packet_within_time_range
         }
     );
-
-    g_action_list.push_back(
-        /*
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return
-                    is_packet_having_type(tree, "LTE_PDCP_UL_Cipher_Data_PDU")
-                    ||
-                    is_packet_having_type(tree, "LTE_PDCP_DL_Cipher_Data_PDU");
-            },
-            extract_pdcp_cipher_data_pdu_packet
-        }
-        */
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return
-                    is_packet_having_type(tree, "LTE_PDCP_UL_Cipher_Data_PDU")
-                    ||
-                    is_packet_having_type(tree, "LTE_PDCP_DL_Cipher_Data_PDU");
-            },
-            update_pdcp_cipher_data_pdu_packet_timestamp
-        }
-    );
-
-    g_action_list.push_back(
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(
-                    tree, "LTE_NAS_EMM_OTA_Incoming_Packet"
-                );
-            },
-            extract_lte_nas_emm_ota_incoming_packet
-        }
-    );
-
-    g_action_list.push_back(
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(
-                    tree, "LTE_NAS_EMM_OTA_Outgoing_Packet"
-                );
-            },
-            extract_lte_nas_emm_ota_outgoing_packet
-        }
-    );
-
-    g_action_list.push_back(
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(
-                    tree, "LTE_MAC_Rach_Attempt"
-                );
-            },
-            extract_lte_mac_rach_attempt_packet
-        }
-    );
-
-    g_action_list.push_back(
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(
-                    tree, "LTE_MAC_Rach_Trigger"
-                );
-            },
-            extract_lte_mac_rach_trigger_packet
-        }
-    );
-
-    g_action_list.push_back(
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(
-                    tree, "LTE_PHY_PDSCH_Stat_Indication"
-                );
-            },
-            extract_lte_phy_pdsch_stat_packet
-        }
-    );
-
-    g_action_list.push_back(
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(
-                    tree, "LTE_PHY_PDSCH_Packet"
-                );
-            },
-            extract_lte_phy_pdsch_packet
-        }
-    );
-
-    g_action_list.push_back(
-        {
-            [] (const pt::ptree &tree, const Job &job) {
-                return is_packet_having_type(
-                    tree, "LTE_PHY_Serv_Cell_Measurement"
-                );
-            },
-            extract_lte_phy_serv_cell_measurement
-        }
-    );
-
-    // g_action_list.push_back(
-    //     {
-    //         [](const pt::ptree &tree, const Job &job) { return true; },
-    //         echo_packet_within_time_range
-    //     }
-    // );
-
     // Predicate: always true
     // Action: do nothing
     g_action_list.push_back(
@@ -1681,6 +1802,7 @@ static void echo_packet_within_time_range(
     std::string content;
     if (within_range) {
         content = std::move(job.xml_string);
+        content += '\n';
     }
     insert_ordered_task(
         job.job_num,

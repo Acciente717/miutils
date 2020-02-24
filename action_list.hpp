@@ -30,6 +30,11 @@ extern ActionList g_action_list;
 /// Even if we have no output on the current input XML tree, we should
 /// produce a dummy output task, which essentially output nothing, to the
 /// in-order executor module.
-extern void initialize_action_list();
+extern void initialize_action_list_with_extractors();
+
+/// Initialize the `g_action_list` to do the filter work. Due to the same
+/// reason as `initialize_action_list_with_extractors()`, we must put
+/// a dummy function at the end of the list.
+extern void initialize_action_list_with_filter();
 
 #endif  // ACTION_LIST_HPP_

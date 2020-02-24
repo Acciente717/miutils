@@ -2,3 +2,4 @@ xmlparser
 *.xml
 obj
 .vscode
+misc
