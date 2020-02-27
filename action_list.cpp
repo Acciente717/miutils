@@ -38,13 +38,14 @@ enum class ExtractorEnum {
     RRC_OTA,
     RRC_SERV_CELL_INFO,
     PDCP_CIPHER_DATA_PDU,
-    LTE_NAS_EMM_OTA_INCOMING,
-    LTE_NAS_EMM_OTA_OUTGOING,
-    LTE_MAC_RACH_ATTEMPT,
-    LTE_MAC_RACH_TRIGGER,
-    LTE_PHY_PDSCH_STAT,
-    LTE_PHY_PDSCH,
-    LTE_PHY_SERV_CELL_MEAS,
+    NAS_EMM_OTA_INCOMING,
+    NAS_EMM_OTA_OUTGOING,
+    MAC_RACH_ATTEMPT,
+    MAC_RACH_TRIGGER,
+    PHY_PDSCH_STAT,
+    PHY_PDSCH,
+    PHY_SERV_CELL_MEAS,
+    ALL_PACKET_TYPE,
     ACTION_PDCP_CIPHER_DATA_PDU,
     NOP
 };
@@ -56,13 +57,14 @@ static const std::unordered_map<std::string,
         {"rrc_ota", ExtractorEnum::RRC_OTA},
         {"rrc_serv_cell_info", ExtractorEnum::RRC_SERV_CELL_INFO},
         {"pdcp_cipher_data_pdu", ExtractorEnum::PDCP_CIPHER_DATA_PDU},
-        {"nas_emm_ota_incoming", ExtractorEnum::LTE_NAS_EMM_OTA_INCOMING},
-        {"nas_emm_ota_outgoing", ExtractorEnum::LTE_NAS_EMM_OTA_OUTGOING},
-        {"mac_rach_attempt", ExtractorEnum::LTE_MAC_RACH_ATTEMPT},
-        {"mac_rach_trigger", ExtractorEnum::LTE_MAC_RACH_TRIGGER},
-        {"phy_pdsch_stat", ExtractorEnum::LTE_PHY_PDSCH_STAT},
-        {"phy_pdsch", ExtractorEnum::LTE_PHY_PDSCH},
-        {"phy_serv_cell_meas", ExtractorEnum::LTE_PHY_SERV_CELL_MEAS},
+        {"nas_emm_ota_incoming", ExtractorEnum::NAS_EMM_OTA_INCOMING},
+        {"nas_emm_ota_outgoing", ExtractorEnum::NAS_EMM_OTA_OUTGOING},
+        {"mac_rach_attempt", ExtractorEnum::MAC_RACH_ATTEMPT},
+        {"mac_rach_trigger", ExtractorEnum::MAC_RACH_TRIGGER},
+        {"phy_pdsch_stat", ExtractorEnum::PHY_PDSCH_STAT},
+        {"phy_pdsch", ExtractorEnum::PHY_PDSCH},
+        {"phy_serv_cell_meas", ExtractorEnum::PHY_SERV_CELL_MEAS},
+        {"all_packet_type", ExtractorEnum::ALL_PACKET_TYPE},
         {"action_pdcp_cipher_data_pdu",
          ExtractorEnum::ACTION_PDCP_CIPHER_DATA_PDU}
     };
@@ -94,6 +96,8 @@ static void extract_lte_phy_pdsch_packet(
 static void extract_lte_phy_serv_cell_measurement(
     pt::ptree &&tree, Job &&job);
 static void echo_packet_within_time_range(
+    pt::ptree &&tree, Job &&job);
+static void extract_packet_type(
     pt::ptree &&tree, Job &&job);
 
 /// The list storing all `ConditionalAction`s.
@@ -201,7 +205,7 @@ void initialize_action_list_with_extractors() {
                       << "and LTE_PDCP_DL_Cipher_Data_PDU"
                       << std::endl;
             break;
-        case ExtractorEnum::LTE_NAS_EMM_OTA_INCOMING:
+        case ExtractorEnum::NAS_EMM_OTA_INCOMING:
             g_action_list.push_back(
                 {
                     [] (const pt::ptree &tree, const Job &job) {
@@ -215,7 +219,7 @@ void initialize_action_list_with_extractors() {
             std::cerr << "Extractor enabled: "
                       << "LTE_NAS_EMM_OTA_Incoming_Packet" << std::endl;
             break;
-        case ExtractorEnum::LTE_NAS_EMM_OTA_OUTGOING:
+        case ExtractorEnum::NAS_EMM_OTA_OUTGOING:
             g_action_list.push_back(
                 {
                     [] (const pt::ptree &tree, const Job &job) {
@@ -229,7 +233,7 @@ void initialize_action_list_with_extractors() {
             std::cerr << "Extractor enabled: "
                       << "LTE_NAS_EMM_OTA_Outgoing_Packet" << std::endl;
             break;
-        case ExtractorEnum::LTE_MAC_RACH_ATTEMPT:
+        case ExtractorEnum::MAC_RACH_ATTEMPT:
             g_action_list.push_back(
                 {
                     [] (const pt::ptree &tree, const Job &job) {
@@ -243,7 +247,7 @@ void initialize_action_list_with_extractors() {
             std::cerr << "Extractor enabled: "
                       << "LTE_MAC_Rach_Attempt" << std::endl;
             break;
-        case ExtractorEnum::LTE_MAC_RACH_TRIGGER:
+        case ExtractorEnum::MAC_RACH_TRIGGER:
             g_action_list.push_back(
                 {
                     [] (const pt::ptree &tree, const Job &job) {
@@ -257,7 +261,7 @@ void initialize_action_list_with_extractors() {
             std::cerr << "Extractor enabled: "
                       << "LTE_MAC_Rach_Trigger" << std::endl;
             break;
-        case ExtractorEnum::LTE_PHY_PDSCH_STAT:
+        case ExtractorEnum::PHY_PDSCH_STAT:
             g_action_list.push_back(
                 {
                     [] (const pt::ptree &tree, const Job &job) {
@@ -271,7 +275,7 @@ void initialize_action_list_with_extractors() {
             std::cerr << "Extractor enabled: "
                       << "LTE_PHY_PDSCH_Stat_Indication" << std::endl;
             break;
-        case ExtractorEnum::LTE_PHY_PDSCH:
+        case ExtractorEnum::PHY_PDSCH:
             g_action_list.push_back(
                 {
                     [] (const pt::ptree &tree, const Job &job) {
@@ -285,7 +289,7 @@ void initialize_action_list_with_extractors() {
             std::cerr << "Extractor enabled: "
                       << "LTE_PHY_PDSCH_Packet" << std::endl;
             break;
-        case ExtractorEnum::LTE_PHY_SERV_CELL_MEAS:
+        case ExtractorEnum::PHY_SERV_CELL_MEAS:
             g_action_list.push_back(
                 {
                     [] (const pt::ptree &tree, const Job &job) {
@@ -298,6 +302,18 @@ void initialize_action_list_with_extractors() {
             );
             std::cerr << "Extractor enabled: "
                       << "LTE_PHY_Serv_Cell_Measurement" << std::endl;
+            break;
+        case ExtractorEnum::ALL_PACKET_TYPE:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return true;
+                    },
+                    extract_packet_type
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "ALL_PACKET_TYPE" << std::endl;
             break;
         case ExtractorEnum::NOP:
             std::cerr << "Warning: encountered unknown extractor "
@@ -1808,6 +1824,30 @@ static void echo_packet_within_time_range(
         job.job_num,
         [content = std::move(content)] {
             (*g_output) << content;
+        }
+    );
+}
+
+/// Print the type of the packet.
+static void extract_packet_type(
+    pt::ptree &&tree, Job &&job) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+
+    std::string packet_type;
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair"
+            && i.second.get("<xmlattr>.key", std::string()) == "type_id") {
+            packet_type = i.second.data();
+            break;
+        }
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [timestamp = std::move(timestamp),
+         packet_type = std::move(packet_type)] {
+            (*g_output) << timestamp << " $ "
+                        << packet_type << std::endl;
         }
     );
 }

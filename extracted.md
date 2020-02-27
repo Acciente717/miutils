@@ -1,0 +1,12 @@
+- RRC_OTA_Packet
+  - reportConfigToRemoveList
+  - measIdToRemoveList
+  - ReportConfigToAddMod
+  - MeasIdToAddMod
+  - measResults
+  - rrcConnectionReestablishmentRequest
+  - rrcConnectionReestablishmentComplete
+  - rrcConnectionReestablishmentReject
+  - rrcConnectionReconfiguration
+  - rrcConnectionReconfigurationComplete
+
