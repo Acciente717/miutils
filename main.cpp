@@ -174,7 +174,12 @@ void parse_option(int argc, char **argv) {
             "1. \"action_pdcp_cipher_data_pdu\" against "
             "\"pdcp_cipher_data_pdu.\"\n\n"
             "This option is mutially exclusive "
-            "with the \"filter\" mode.");
+            "with the \"filter\" mode.\n")
+        ("dedup",
+            "Enable deduplicate mode.\n"
+            "For each packet, it will be printed to the output if "
+            "and only if its timestamp is no less than all previously "
+            "seen packets.");
 
     /// All internal options. (Arguments are automatically transformed to
     /// the --input option.)
@@ -271,6 +276,21 @@ void parse_option(int argc, char **argv) {
         g_output = std::move(file);
     }
 
+    // One and only one of the --filter, --extract or --dedup must be set.
+    auto mode_cnt = vm.count("filter") + vm.count("extract")
+                  + vm.count("dedup");
+    if(mode_cnt == 0) {
+        throw ArgumentError(
+            "None of the \"extract\", \"filter\" and \"dedup\" mode is "
+            "enabled."
+        );
+    } else if (mode_cnt > 1) {
+        throw ArgumentError(
+            "Only one of the \"extract\", \"filter\" and \"dedup\" mode "
+            "can be enabled at a time."
+        );
+    }
+
     // If the range file is provided, read and store them to
     // the global vector.
     if (vm.count("filter")) {
@@ -287,18 +307,9 @@ void parse_option(int argc, char **argv) {
             g_valid_time_range.emplace_back(left, right);
         }
         initialize_action_list_with_filter();
-    }
 
-    if (vm.count("extract")) {
-        // If both the "filter" and "extract" options are set,
-        // exit with error.
-        if (vm.count("filter")) {
-            throw ArgumentError(
-                "Both \"extract\" and \"filter\" options are "
-                "set, however they are MUTUAL EXCLUSIVE."
-            );
-        }
-
+    // If the extract mode is enabled, perpare the extractor list.
+    } else if (vm.count("extract")) {
         // Split the string by ",", and stores them to the global
         // vector.
         auto extractors_str = vm["extract"].as<std::string>();
@@ -317,13 +328,9 @@ void parse_option(int argc, char **argv) {
             start = end + 1;
         }
         initialize_action_list_with_extractors();
-    }
-
-    if(vm.count("filter") == 0 && vm.count("extract") == 0) {
-        throw ArgumentError(
-            "Neigher \"extract\" nor \"filter\" mode is "
-            "enabled."
-        );
+    // If the dedup mode is enabled, setup the action list correspondingly.
+    } else if (vm.count("dedup")) {
+        initialize_action_list_to_dedup();
     }
 }
 

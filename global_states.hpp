@@ -119,6 +119,13 @@ extern std::vector<std::pair<time_t, time_t>> g_valid_time_range;
 /// Enabled extractor names.
 extern std::vector<std::string> g_enabled_extractors;
 
+/// The largest timestamp we have ever seen in the packets.
+extern time_t g_latest_seen_timestamp;
+
+/// The largest timestamp in string representation
+/// that we have ever seen in the packets.
+extern std::string g_latest_seen_ts_string;
+
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception
 /// pointer.

@@ -107,6 +107,9 @@ static void extract_rlc_dl_am_all_pdu(
     pt::ptree &&tree, Job &&job);
 static void extract_rlc_ul_am_all_pdu(
     pt::ptree &&tree, Job &&job);
+static void echo_packet_if_new(
+    pt::ptree &&tree, Job &&job);
+
 
 /// The list storing all `ConditionalAction`s.
 ActionList g_action_list;
@@ -397,6 +400,28 @@ void initialize_action_list_with_filter() {
     );
 }
 
+/// Initialize the `g_action_list` to do the deduplicate work.Due to the
+/// same reason as `initialize_action_list_with_extractors()`, we must put
+/// a dummy function at the end of the list.
+void initialize_action_list_to_dedup() {
+    g_action_list.push_back(
+        {
+            [](const pt::ptree &tree, const Job &job) { return true; },
+            echo_packet_if_new
+        }
+    );
+    // Predicate: always true
+    // Action: do nothing
+    g_action_list.push_back(
+        {
+            [](const pt::ptree &tree, const Job &job) { return true; },
+            [](pt::ptree &&tree, Job &&job) {
+                insert_ordered_task(job.job_num, []{});
+            }
+        }
+    );
+}
+
 /// Return true if and only if the tree has the following structure:
 /// <dm_log_packet>
 ///     ...
@@ -433,6 +458,39 @@ static std::string get_packet_time_stamp(const pt::ptree &tree) {
         }
     }
     return timestamp;
+}
+
+/// Convert the timestamp string to a long integer under
+/// timezone UTC+8.
+static time_t timestamp_str2long(const std::string &timestamp) {
+    tm s;
+    memset(&s, 0, sizeof(s));
+    auto cnt = sscanf(timestamp.c_str(), "%d-%d-%d %d:%d:%d.%*d",
+                      &s.tm_year, &s.tm_mon, &s.tm_mday,
+                      &s.tm_hour, &s.tm_min, &s.tm_sec);
+    if (cnt != 6) {
+        return static_cast<time_t>(-1);
+    }
+    s.tm_year -= 1900;
+    s.tm_mon -= 1;
+    return mktime(&s) + 28800;
+}
+
+/// Convert the timestamp string to a long integer under
+/// timezone UTC+8. The returned value contains the microsecond part.
+static time_t timestamp_str2long_microsec_hack(const std::string &timestamp) {
+    tm s;
+    int mircosec;
+    memset(&s, 0, sizeof(s));
+    auto cnt = sscanf(timestamp.c_str(), "%d-%d-%d %d:%d:%d.%d",
+                      &s.tm_year, &s.tm_mon, &s.tm_mday,
+                      &s.tm_hour, &s.tm_min, &s.tm_sec, &mircosec);
+    if (cnt != 7) {
+        return static_cast<time_t>(-1);
+    }
+    s.tm_year -= 1900;
+    s.tm_mon -= 1;
+    return ((mktime(&s) + 28800) * 1000000) + mircosec;
 }
 
 static bool is_tree_having_attribute(
@@ -1824,11 +1882,9 @@ static void extract_lte_phy_serv_cell_measurement(
 static void echo_packet_within_time_range(
     pt::ptree &&tree, Job &&job) {
     auto &&timestamp = get_packet_time_stamp(tree);
-    tm s;
-    auto cnt = sscanf(timestamp.c_str(), "%d-%d-%d %d:%d:%d.%*d",
-                      &s.tm_year, &s.tm_mon, &s.tm_mday,
-                      &s.tm_hour, &s.tm_min, &s.tm_sec);
-    if (cnt != 6) {
+
+    auto rawtime = timestamp_str2long(timestamp);
+    if (rawtime == static_cast<time_t>(-1)) {
         insert_ordered_task(
             job.job_num,
             [timestamp = std::move(timestamp)] {
@@ -1840,9 +1896,7 @@ static void echo_packet_within_time_range(
         );
         return;
     }
-    s.tm_year -= 1900;
-    s.tm_mon -= 1;
-    auto rawtime = mktime(&s) + 28800;
+
     bool within_range = false;
     for (auto range : g_valid_time_range) {
         if (range.first <= rawtime && rawtime <= range.second) {
@@ -1954,4 +2008,40 @@ static void extract_rlc_dl_am_all_pdu(
 static void extract_rlc_ul_am_all_pdu(
     pt::ptree &&tree, Job &&job) {
     extract_rlc_am_all_pdu(std::move(tree), std::move(job), true);
+}
+
+/// Print the packet to the output file if the timestamp
+/// is greater or equal than that of the latest packet we have ever seen.
+static void echo_packet_if_new(
+    pt::ptree &&tree, Job &&job) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+
+    auto rawtime = timestamp_str2long_microsec_hack(timestamp);
+    if (rawtime == static_cast<time_t>(-1)) {
+        insert_ordered_task(
+            job.job_num,
+            [timestamp = std::move(timestamp)] {
+                std::cerr << "Warning (packet timestamp = "
+                          + timestamp + "): \n"
+                          << "Timestamp is not in the format "
+                          << "\"%d-%d-%d %d:%d:%d.%*d\"\n";
+            }
+        );
+        return;
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [content = std::move(job.xml_string), rawtime, timestamp] {
+            if (rawtime >= g_latest_seen_timestamp) {
+                (*g_output) << content << std::endl;
+                g_latest_seen_timestamp = rawtime;
+                g_latest_seen_ts_string = timestamp;
+            } else {
+                std::cerr << "Dropping packet: "
+                          << timestamp << " < "
+                          << g_latest_seen_ts_string << std::endl;;
+            }
+        }
+    );
 }
