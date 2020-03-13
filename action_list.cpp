@@ -45,6 +45,8 @@ enum class ExtractorEnum {
     PHY_PDSCH_STAT,
     PHY_PDSCH,
     PHY_SERV_CELL_MEAS,
+    RLC_DL_AM_ALL_PDU,
+    RLC_UL_AM_ALL_PDU,
     ALL_PACKET_TYPE,
     ACTION_PDCP_CIPHER_DATA_PDU,
     NOP
@@ -64,6 +66,8 @@ static const std::unordered_map<std::string,
         {"phy_pdsch_stat", ExtractorEnum::PHY_PDSCH_STAT},
         {"phy_pdsch", ExtractorEnum::PHY_PDSCH},
         {"phy_serv_cell_meas", ExtractorEnum::PHY_SERV_CELL_MEAS},
+        {"rlc_dl_am_all_pdu", ExtractorEnum::RLC_DL_AM_ALL_PDU},
+        {"rlc_ul_am_all_pdu", ExtractorEnum::RLC_UL_AM_ALL_PDU},
         {"all_packet_type", ExtractorEnum::ALL_PACKET_TYPE},
         {"action_pdcp_cipher_data_pdu",
          ExtractorEnum::ACTION_PDCP_CIPHER_DATA_PDU}
@@ -98,6 +102,10 @@ static void extract_lte_phy_serv_cell_measurement(
 static void echo_packet_within_time_range(
     pt::ptree &&tree, Job &&job);
 static void extract_packet_type(
+    pt::ptree &&tree, Job &&job);
+static void extract_rlc_dl_am_all_pdu(
+    pt::ptree &&tree, Job &&job);
+static void extract_rlc_ul_am_all_pdu(
     pt::ptree &&tree, Job &&job);
 
 /// The list storing all `ConditionalAction`s.
@@ -302,6 +310,34 @@ void initialize_action_list_with_extractors() {
             );
             std::cerr << "Extractor enabled: "
                       << "LTE_PHY_Serv_Cell_Measurement" << std::endl;
+            break;
+        case ExtractorEnum::RLC_DL_AM_ALL_PDU:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_RLC_DL_AM_All_PDU"
+                        );
+                    },
+                    extract_rlc_dl_am_all_pdu
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_RLC_DL_AM_All_PDU" << std::endl;
+            break;
+        case ExtractorEnum::RLC_UL_AM_ALL_PDU:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_RLC_UL_AM_All_PDU"
+                        );
+                    },
+                    extract_rlc_ul_am_all_pdu
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_RLC_UL_AM_All_PDU" << std::endl;
             break;
         case ExtractorEnum::ALL_PACKET_TYPE:
             g_action_list.push_back(
@@ -1850,4 +1886,72 @@ static void extract_packet_type(
                         << packet_type << std::endl;
         }
     );
+}
+
+/// Extract RLCUL/RLCDL PDUs fields in
+/// LTE_RLC_UL_AM_All_PDU/LTE_RLC_DL_AM_All_PDU packets.
+static void extract_rlc_am_all_pdu(
+    pt::ptree &&tree, Job &&job, bool uplink) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+
+    const char *rlc_lists_tag;
+    const char *result_tag;
+    if (uplink) {
+        rlc_lists_tag = "RLCUL PDUs";
+        result_tag = " $ LTE_RLC_UL_AM_All_PDU $ ";
+    } else {
+        rlc_lists_tag = "RLCDL PDUs";
+        result_tag = " $ LTE_RLC_DL_AM_All_PDU $ ";
+    }
+
+    std::string result;
+    auto &&rlcdl_pdu_lists = locate_disjoint_subtree_with_attribute(
+        tree, "key", rlc_lists_tag
+    );
+
+    for (auto rlcdl_pdu_list : rlcdl_pdu_lists) {
+        auto &&rlcdl_pdus = locate_disjoint_subtree_with_attribute(
+            *rlcdl_pdu_list, "type", "dict"
+        );
+        for (auto rlcdl_pdu : rlcdl_pdus) {
+            result += timestamp;
+            result += result_tag;
+            auto &&fields = rlcdl_pdu->get_child("dict");
+            bool first = true;
+            for (auto &&field : fields) {
+                auto &&value = field.second.get_value<std::string>();
+                auto &&key = field.second.get<std::string>("<xmlattr>.key");
+                if (!first) {
+                    result += ", ";
+                } else {
+                    first = false;
+                }
+                result += key;
+                result += ": ";
+                if (key != "RLC DATA LI") {
+                    result += value;
+                } else {
+                    result += "OMITTED";
+                }
+            }
+            result += '\n';
+        }
+    }
+
+    insert_ordered_task(
+        job.job_num,
+        [result = std::move(result)] {
+            (*g_output) << result;
+        }
+    );
+}
+
+static void extract_rlc_dl_am_all_pdu(
+    pt::ptree &&tree, Job &&job) {
+    extract_rlc_am_all_pdu(std::move(tree), std::move(job), false);
+}
+
+static void extract_rlc_ul_am_all_pdu(
+    pt::ptree &&tree, Job &&job) {
+    extract_rlc_am_all_pdu(std::move(tree), std::move(job), true);
 }

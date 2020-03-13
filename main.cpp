@@ -159,6 +159,7 @@ void parse_option(int argc, char **argv) {
             "mac_rach_attempt, mac_rach_trigger, "
             "phy_pdsch_stat, phy_pdsch, "
             "phy_serv_cell_meas, action_pdcp_cipher_data_pdu, "
+            "rlc_dl_am_all_pdu, rlc_ul_am_all_pdu, "
             "all_packet_type].\n\n"
             "Note that each packet goes through the enabled "
             "extractors list. Only the first matched extractor "
