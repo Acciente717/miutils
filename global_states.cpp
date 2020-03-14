@@ -52,6 +52,9 @@ time_t g_latest_seen_timestamp = 0;
 /// that we have ever seen in the packets.
 std::string g_latest_seen_ts_string;
 
+/// The packet sorter.
+std::unique_ptr<ReorderWindow> g_reorder_window;
+
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception
 /// pointer.

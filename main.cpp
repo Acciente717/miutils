@@ -131,7 +131,7 @@ void show_exception_message(T &e) {
 
 /// Parse command line options and arguments, and set the global variables
 /// accordingly.
-void parse_option(int argc, char **argv) {
+static void parse_option(int argc, char **argv) {
     namespace po = boost::program_options;
 
     /// All visible options (those can be seen by --help).
@@ -176,10 +176,19 @@ void parse_option(int argc, char **argv) {
             "This option is mutially exclusive "
             "with the \"filter\" mode.\n")
         ("dedup",
-            "Enable deduplicate mode.\n"
+            "Enable deduplicate mode.\n\n"
             "For each packet, it will be printed to the output if "
             "and only if its timestamp is no less than all previously "
-            "seen packets.");
+            "seen packets.\n")
+        ("reorder", po::value<long>(),
+            "Enable reorder mode. "
+            "Specify the size of reorder window in milliseconds.\n\n"
+            "For each pair of packets P and Q, if P occurs before "
+            "Q in the file but the timestamp of P is greater than Q, "
+            "then it is a reverse pair. If the difference of the "
+            "timestamp between P and Q is less than the given "
+            "reorder window size, then Q is guaranteed to precede "
+            "P in the output.");
 
     /// All internal options. (Arguments are automatically transformed to
     /// the --input option.)
@@ -278,16 +287,16 @@ void parse_option(int argc, char **argv) {
 
     // One and only one of the --filter, --extract or --dedup must be set.
     auto mode_cnt = vm.count("filter") + vm.count("extract")
-                  + vm.count("dedup");
+                  + vm.count("dedup") + vm.count("reorder");
     if(mode_cnt == 0) {
         throw ArgumentError(
-            "None of the \"extract\", \"filter\" and \"dedup\" mode is "
-            "enabled."
+            "None of the \"extract\", \"filter\",  \"dedup\" "
+            "and \"reorder\" mode is enabled."
         );
     } else if (mode_cnt > 1) {
         throw ArgumentError(
-            "Only one of the \"extract\", \"filter\" and \"dedup\" mode "
-            "can be enabled at a time."
+            "Only one of the \"extract\", \"filter\", \"dedup\" "
+            "and \"reorder\" mode can be enabled at a time."
         );
     }
 
@@ -331,6 +340,21 @@ void parse_option(int argc, char **argv) {
     // If the dedup mode is enabled, setup the action list correspondingly.
     } else if (vm.count("dedup")) {
         initialize_action_list_to_dedup();
+    // If the reorder mode is enabled, setup the reorder window
+    // and initialize the action list correspondingly.
+    } else if (vm.count("reorder")) {
+        auto size = vm["reorder"].as<long>();
+        g_reorder_window.reset(new ReorderWindow(size));
+        initialize_action_list_to_reorder();
+    }
+}
+
+/// Do clean up work before exiting.
+static void cleanup() {
+    /// If we are in the reorder mode, print out everything
+    /// left in the reorder window.
+    if (g_reorder_window != nullptr) {
+        g_reorder_window->flush();
     }
 }
 
@@ -339,6 +363,7 @@ int main(int argc, char **argv) {
         std::ios::sync_with_stdio(false);
         parse_option(argc, argv);
         smain();
+        cleanup();
     } catch (UnexpectedCase &e) {
         show_exception_message(e);
         return 1;

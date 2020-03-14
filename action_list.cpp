@@ -109,6 +109,8 @@ static void extract_rlc_ul_am_all_pdu(
     pt::ptree &&tree, Job &&job);
 static void echo_packet_if_new(
     pt::ptree &&tree, Job &&job);
+static void update_reorder_window(
+    pt::ptree &&tree, Job &&job);
 
 
 /// The list storing all `ConditionalAction`s.
@@ -400,7 +402,7 @@ void initialize_action_list_with_filter() {
     );
 }
 
-/// Initialize the `g_action_list` to do the deduplicate work.Due to the
+/// Initialize the `g_action_list` to do the deduplicate work. Due to the
 /// same reason as `initialize_action_list_with_extractors()`, we must put
 /// a dummy function at the end of the list.
 void initialize_action_list_to_dedup() {
@@ -408,6 +410,28 @@ void initialize_action_list_to_dedup() {
         {
             [](const pt::ptree &tree, const Job &job) { return true; },
             echo_packet_if_new
+        }
+    );
+    // Predicate: always true
+    // Action: do nothing
+    g_action_list.push_back(
+        {
+            [](const pt::ptree &tree, const Job &job) { return true; },
+            [](pt::ptree &&tree, Job &&job) {
+                insert_ordered_task(job.job_num, []{});
+            }
+        }
+    );
+}
+
+/// Initialize the `g_action_list` to do the reorder work .Due to the
+/// same reason as `initialize_action_list_with_extractors()`, we must put
+/// a dummy function at the end of the list.
+void initialize_action_list_to_reorder() {
+    g_action_list.push_back(
+        {
+            [](const pt::ptree &tree, const Job &job) { return true; },
+            update_reorder_window
         }
     );
     // Predicate: always true
@@ -2017,14 +2041,15 @@ static void echo_packet_if_new(
     auto &&timestamp = get_packet_time_stamp(tree);
 
     auto rawtime = timestamp_str2long_microsec_hack(timestamp);
-    if (rawtime == static_cast<time_t>(-1)) {
+    if_unlikely (rawtime == static_cast<time_t>(-1)) {
         insert_ordered_task(
             job.job_num,
             [timestamp = std::move(timestamp)] {
                 std::cerr << "Warning (packet timestamp = "
                           + timestamp + "): \n"
                           << "Timestamp is not in the format "
-                          << "\"%d-%d-%d %d:%d:%d.%*d\"\n";
+                          << "\"%d-%d-%d %d:%d:%d.%*d\". "
+                          << "Dropped." << std::endl;
             }
         );
         return;
@@ -2040,8 +2065,38 @@ static void echo_packet_if_new(
             } else {
                 std::cerr << "Dropping packet: "
                           << timestamp << " < "
-                          << g_latest_seen_ts_string << std::endl;;
+                          << g_latest_seen_ts_string << std::endl;
             }
+        }
+    );
+}
+
+static void update_reorder_window(
+    pt::ptree &&tree, Job &&job) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+
+    auto rawtime = timestamp_str2long_microsec_hack(timestamp);
+    if_unlikely (rawtime == static_cast<time_t>(-1)) {
+        insert_ordered_task(
+            job.job_num,
+            [timestamp = std::move(timestamp)] {
+                std::cerr << "Warning (packet timestamp = "
+                          + timestamp + "): \n"
+                          << "Timestamp is not in the format "
+                          << "\"%d-%d-%d %d:%d:%d.%*d\". "
+                          << "Dropped." << std::endl;
+            }
+        );
+        return;
+    }
+
+    auto &&content = job.xml_string;
+    insert_ordered_task(
+        job.job_num,
+        [content, rawtime]() mutable {
+            g_reorder_window->update(
+                rawtime, std::move(content)
+            );
         }
     );
 }

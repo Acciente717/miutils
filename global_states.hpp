@@ -10,6 +10,7 @@
 #include <iostream>
 #include <vector>
 #include <ctime>
+#include "sorter.hpp"
 
 /// The states for the state machine in the main function.
 enum class MainState {
@@ -125,6 +126,9 @@ extern time_t g_latest_seen_timestamp;
 /// The largest timestamp in string representation
 /// that we have ever seen in the packets.
 extern std::string g_latest_seen_ts_string;
+
+/// The packet sorter.
+extern std::unique_ptr<ReorderWindow> g_reorder_window;
 
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception

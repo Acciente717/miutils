@@ -40,6 +40,11 @@ extern void initialize_action_list_with_filter();
 /// Initialize the `g_action_list` to do the deduplicate work.Due to the
 /// same reason as `initialize_action_list_with_extractors()`, we must put
 /// a dummy function at the end of the list.
-void initialize_action_list_to_dedup();
+extern void initialize_action_list_to_dedup();
+
+/// Initialize the `g_action_list` to do the reorder work .Due to the
+/// same reason as `initialize_action_list_with_extractors()`, we must put
+/// a dummy function at the end of the list.
+extern void initialize_action_list_to_reorder();
 
 #endif  // ACTION_LIST_HPP_
