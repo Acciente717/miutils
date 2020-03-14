@@ -182,7 +182,7 @@ static void parse_option(int argc, char **argv) {
             "seen packets.\n")
         ("reorder", po::value<long>(),
             "Enable reorder mode. "
-            "Specify the size of reorder window in milliseconds.\n\n"
+            "Specify the size of reorder window in microseconds.\n\n"
             "For each pair of packets P and Q, if P occurs before "
             "Q in the file but the timestamp of P is greater than Q, "
             "then it is a reverse pair. If the difference of the "
