@@ -360,7 +360,6 @@ static void cleanup() {
 
 int main(int argc, char **argv) {
     try {
-        std::ios::sync_with_stdio(false);
         parse_option(argc, argv);
         smain();
         cleanup();
