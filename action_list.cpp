@@ -509,7 +509,12 @@ static time_t timestamp_str2long_microsec_hack(const std::string &timestamp) {
     auto cnt = sscanf(timestamp.c_str(), "%d-%d-%d %d:%d:%d.%d",
                       &s.tm_year, &s.tm_mon, &s.tm_mday,
                       &s.tm_hour, &s.tm_min, &s.tm_sec, &mircosec);
-    if (cnt != 7) {
+    if (cnt == 6) {
+        cnt = sscanf(timestamp.c_str(), "%d-%d-%d %d:%d:%d",
+                     &s.tm_year, &s.tm_mon, &s.tm_mday,
+                     &s.tm_hour, &s.tm_min, &s.tm_sec);
+        mircosec = 0;
+    } else if (cnt != 7) {
         return static_cast<time_t>(-1);
     }
     s.tm_year -= 1900;
@@ -2047,8 +2052,9 @@ static void echo_packet_if_new(
             [timestamp = std::move(timestamp)] {
                 std::cerr << "Warning (packet timestamp = "
                           + timestamp + "): \n"
-                          << "Timestamp is not in the format "
-                          << "\"%d-%d-%d %d:%d:%d.%*d\". "
+                          << "Timestamp does not match the pattern "
+                          << "\"%d-%d-%d %d:%d:%d.%d\" "
+                          << "or \"%d-%d-%d %d:%d:%d\". "
                           << "Dropped." << std::endl;
             }
         );
@@ -2082,8 +2088,9 @@ static void update_reorder_window(
             [timestamp = std::move(timestamp)] {
                 std::cerr << "Warning (packet timestamp = "
                           + timestamp + "): \n"
-                          << "Timestamp is not in the format "
-                          << "\"%d-%d-%d %d:%d:%d.%*d\". "
+                          << "Timestamp does not match the pattern "
+                          << "\"%d-%d-%d %d:%d:%d.%d\" "
+                          << "or \"%d-%d-%d %d:%d:%d\". "
                           << "Dropped." << std::endl;
             }
         );
