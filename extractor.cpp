@@ -55,6 +55,8 @@ static std::condition_variable g_job_queue_nonempty_cv;
 /// which acts as the producer of the job_queue, that the job_queue has
 /// become non-full.
 static std::condition_variable g_job_queue_nonfull_cv;
+/// The flag indicating whether the insertion to job_queue is pending.
+static bool g_insert_pending = false;
 
 /// Start the extractor threads. The number of extractor threads will
 /// be `g_thread_num`.
@@ -103,6 +105,7 @@ void produce_job_to_extractor(Job job) {
     g_job_queue_nonfull_cv.wait(
         queue_lck,
         []{
+            g_insert_pending = true;
             return g_splitter_finished || g_early_terminating
                    || g_job_queue.size() < g_thread_num * HIGH_WATRE_MARK;
         }
@@ -122,12 +125,14 @@ void produce_job_to_extractor(Job job) {
         );
     }
 
-    // If we have any sleeping thread, choose one to wake it up.
-    if (g_running_extractor_num != g_alive_extractor_num) {
-        g_job_queue_nonempty_cv.notify_one();
-    }
-
     g_job_queue.emplace(std::move(job));
+    g_insert_pending = false;
+
+    // If the queue is full, wake up all sleeping worker threads.
+    if (g_running_extractor_num != g_alive_extractor_num
+        && g_job_queue.size() == g_thread_num * HIGH_WATRE_MARK) {
+        g_job_queue_nonempty_cv.notify_all();
+    }
 }
 
 /// When all extractors have finished execution, the last one finished calls
@@ -200,15 +205,17 @@ static void smain_extractor() {
                 return;
             }
 
-            // If the queue is previously full, we should notify the splitter
-            // that the queue now has an empty slot.
-            if (g_job_queue.size() <= g_thread_num * LOW_WATER_MARK) {
-                g_job_queue_nonfull_cv.notify_one();
-            }
-
             // Consume a job from the queue and take actions.
             auto job = std::move(g_job_queue.front());
             g_job_queue.pop();
+
+            // If the queue is almost empty and the splitter is waiting,
+            // we should wake up the splitter
+            if (g_job_queue.size() <= g_thread_num * LOW_WATER_MARK
+                && g_insert_pending) {
+                g_job_queue_nonfull_cv.notify_one();
+            }
+
             queue_lck.unlock();
             take_actions_on_input(std::move(job));
         }
