@@ -101,10 +101,10 @@ static void smain() {
         case MainState::Error:
             main_state_lck.unlock();
             kill_splitter();
-            join_splitter();
-            notify_splitter_finished();
-            join_extractor();
+            kill_extractor();
             kill_in_order_executor();
+            join_splitter();
+            join_extractor();
             join_in_order_executor();
             if (g_pexcept != nullptr) {
                 std::rethrow_exception(g_pexcept);

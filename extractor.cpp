@@ -43,6 +43,9 @@ static int g_running_extractor_num = 0;
 /// The flag indicating whether the splitter, which acts as the producer of
 /// the extractors, has finished its execution.
 static bool g_splitter_finished = false;
+/// The flag indication whether an error has occured and we should stop
+/// all extractors prematurely.
+static bool g_early_terminating = false;
 /// The queue for storing pending jobs.
 static std::queue<Job> g_job_queue;
 /// The condition variable which is used to notify extractor threads that
@@ -75,6 +78,14 @@ void join_extractor() {
     g_extractors.clear();
 }
 
+/// Terminate all extractor threads prematurely.
+void kill_extractor() {
+    std::lock_guard<std::mutex> guard(g_extractors_mtx);
+    g_early_terminating = true;
+    g_job_queue_nonfull_cv.notify_all();
+    g_job_queue_nonempty_cv.notify_all();
+}
+
 /// Notify all extractors threads that the splitter, which acts as the
 /// producer of extractors, has finished execution.
 void notify_splitter_finished() {
@@ -92,10 +103,15 @@ void produce_job_to_extractor(Job job) {
     g_job_queue_nonfull_cv.wait(
         queue_lck,
         []{
-            return g_splitter_finished
-                    || g_job_queue.size() < g_thread_num * HIGH_WATRE_MARK;
+            return g_splitter_finished || g_early_terminating
+                   || g_job_queue.size() < g_thread_num * HIGH_WATRE_MARK;
         }
     );
+
+    /// Terminate prematurely.
+    if_unlikely (g_early_terminating) {
+        return;
+    }
 
     // If the splitter, which is the producer of all extractors, is set
     // to be finished execution, then this is an error.
@@ -160,9 +176,15 @@ static void smain_extractor() {
                 --g_running_extractor_num;
                 g_job_queue_nonempty_cv.wait(
                     queue_lck,
-                    []{ return g_splitter_finished || !g_job_queue.empty(); }
+                    []{ return !g_job_queue.empty() || g_splitter_finished
+                               || g_early_terminating; }
                 );
                 ++g_running_extractor_num;
+            }
+
+            // Terminate prematurely.
+            if_unlikely (g_early_terminating) {
+                return;
             }
 
             // If `g_job_queue` is empty, we woke from the above wait function

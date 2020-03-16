@@ -105,7 +105,7 @@ void join_splitter() {
 /// Prematurely stop the lexical splitter. It does NOT join the thread.
 /// One should call join_splitter() after calling this function.
 void kill_splitter() {
-    g_early_terminating = true;
+    g_early_terminating.store(false);
 }
 
 /// When the splitter has finished execution, it calls this funcion
@@ -140,7 +140,7 @@ static void smain_splitter() {
         long job_num = 0;
 
         // Continue to loop unless exiting prematurely.
-        while (!g_early_terminating.load(std::memory_order_relaxed)) {
+        while (!g_early_terminating.load()) {
             // Get a piece of the file in the form
             // "<$top_level_tag> ... </$top_level_tag>".
             xml_subtree = next_ptree_string();

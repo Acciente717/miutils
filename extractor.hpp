@@ -27,6 +27,9 @@ extern void start_extractor();
 /// Join all extractor threads.
 extern void join_extractor();
 
+/// Terminate all extractor threads prematurely.
+extern void kill_extractor();
+
 /// Notify all extractors threads that the splitter, which acts as the
 /// producer of extractors, has finished execution.
 extern void notify_splitter_finished();
