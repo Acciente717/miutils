@@ -6,13 +6,19 @@
 constexpr int THREAD_LIMIT = 256;
 
 /// Defalut extractor thread number.
-constexpr int THREAD_DEFAULT = 4;
+constexpr int THREAD_DEFAULT = 16;
 
-/// The high water mark for the queue between the splitter and the extractors.
-/// `HIGH_WATRE_MARK * g_thread_num` is the maximum job number that can be
+/// The full water mark for the queue between the splitter and the extractors.
+/// `FULL_WATRE_MARK * g_thread_num` is the maximum job number that can be
 /// buffered in the queue. If it reaches that value, the splitter will be
 /// temporarily blocked.
-constexpr int HIGH_WATRE_MARK = 16;
+constexpr int FULL_WATRE_MARK = 128;
+
+/// The middle water mark for the queue between the spitter and the extractors.
+/// `MIDDLE_WATER_MARK * g_thread_num` is the threshold for deciding whether
+/// the producing speed of the splitter or the consuming speed of the
+/// extractors is larger.
+constexpr int MIDDLE_WATER_MARK = 32;
 
 /// The low water mark for the queue between the splitter and the extractors.
 /// When the number of pending jobs in the queue drops below
