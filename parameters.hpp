@@ -6,7 +6,7 @@
 constexpr int THREAD_LIMIT = 256;
 
 /// Defalut extractor thread number.
-constexpr int THREAD_DEFAULT = 16;
+constexpr int THREAD_DEFAULT = 4;
 
 /// The full water mark for the queue between the splitter and the extractors.
 /// `FULL_WATRE_MARK * g_thread_num` is the maximum job number that can be
