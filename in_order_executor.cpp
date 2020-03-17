@@ -41,13 +41,16 @@ static bool g_early_terminating = false;
 static bool g_no_more_task = false;
 /// The thread object of the in-order executor.
 static std::thread g_executor_thread;
+/// The flag indicating if the executor thread is sleeping.
+static bool g_executor_sleeping = false;
 
 /// Provide a task associated with a sequence number to the in-order
 /// executor. Note that the producer to this module MUST guarantee that the
 /// provided sequence number is consecutive.
 void insert_ordered_task(long seq_num, std::function<void()> func) {
     std::lock_guard<std::mutex> guard(g_pending_task_mtx);
-    if (seq_num == g_next_task_num) {
+    if (seq_num == g_next_task_num && g_executor_sleeping) {
+        g_executor_sleeping = false;
         g_pending_task_nonempty_cv.notify_one();
     }
     g_pending_task.push({seq_num, func});
@@ -85,13 +88,16 @@ static void smain_in_order_executor() {
             // execute them in-order.
             g_pending_task_nonempty_cv.wait(
                 lck,
-                [] { return
+                [] {
+                    g_executor_sleeping = true;
+                    return
                         g_early_terminating ||
                         (!g_pending_task.empty() &&
                         g_pending_task.top().seq_num == g_next_task_num) ||
                         g_no_more_task;
                 }
             );
+            g_executor_sleeping = false;
 
             // Check if we should exit prematuerly.
             if (g_early_terminating) {

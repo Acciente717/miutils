@@ -107,9 +107,10 @@ void produce_job_to_extractor(Job job) {
         []{
             g_insert_pending = true;
             return g_splitter_finished || g_early_terminating
-                   || g_job_queue.size() < g_thread_num * HIGH_WATRE_MARK;
+                   || g_job_queue.size() < g_thread_num * FULL_WATRE_MARK;
         }
     );
+    g_insert_pending = false;
 
     /// Terminate prematurely.
     if_unlikely (g_early_terminating) {
@@ -126,12 +127,21 @@ void produce_job_to_extractor(Job job) {
     }
 
     g_job_queue.emplace(std::move(job));
-    g_insert_pending = false;
 
-    // If the queue is full, wake up all sleeping worker threads.
-    if (g_running_extractor_num != g_alive_extractor_num
-        && g_job_queue.size() == g_thread_num * HIGH_WATRE_MARK) {
-        g_job_queue_nonempty_cv.notify_all();
+    // Check if the there are sleeping worker threads.
+    if (g_running_extractor_num != g_alive_extractor_num) {
+        // If the splitter's producing speed is significantly larger than
+        // the consumption speed of executor threads, then we will eventually
+        // go into the `if` branch below. In such case, we should wake up
+        // all sleeping executor threads to achieve maximum performance.
+        if (g_job_queue.size() > g_thread_num * MIDDLE_WATER_MARK) {
+            g_job_queue_nonempty_cv.notify_all();
+        // Otherwise, we would better maintain a dynamic balance between
+        // the splitter thread and extractor threads, so we wake up one more
+        // extractor.
+        } else {
+            g_job_queue_nonempty_cv.notify_one();
+        }
     }
 }
 
@@ -209,10 +219,11 @@ static void smain_extractor() {
             auto job = std::move(g_job_queue.front());
             g_job_queue.pop();
 
-            // If the queue is almost empty and the splitter is waiting,
-            // we should wake up the splitter
+            // If the queue is almost empty and the splitter is sleeping,
+            // we should wake up the splitter.
             if (g_job_queue.size() <= g_thread_num * LOW_WATER_MARK
                 && g_insert_pending) {
+                g_insert_pending = false;
                 g_job_queue_nonfull_cv.notify_one();
             }
 
