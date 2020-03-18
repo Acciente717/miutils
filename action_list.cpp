@@ -2011,7 +2011,19 @@ static void extract_rlc_am_all_pdu(
                 }
                 result += key;
                 result += ": ";
-                if (key != "RLC DATA LI") {
+                if (key == "RLC CTRL NACK") {
+                    auto &&nack_sns = locate_disjoint_subtree_with_attribute(
+                        field.second, "key", "NACK_SN"
+                    );
+                    std::string sns_str;
+                    for (auto &&sns : nack_sns) {
+                        if (!sns_str.empty()) {
+                            sns_str += '/';
+                        }
+                        sns_str += sns->get_value<std::string>();
+                    }
+                    result += sns_str;
+                } else if (key != "RLC DATA LI") {
                     result += value;
                 } else {
                     result += "OMITTED";
