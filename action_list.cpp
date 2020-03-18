@@ -7,7 +7,7 @@
  * The predicate function is called first, and if it yields true, the action
  * function will then be called.
  * 
- * All `CondiitionalAction`s are stored in a list. Note that ONLY THE FIRST
+ * All `ConditionalAction`s are stored in a list. Note that ONLY THE FIRST
  * action function in the list whose corresponding predicate function yields
  * true will be called. All predicate and action functions after it will be
  * skipped.
@@ -47,6 +47,8 @@ enum class ExtractorEnum {
     PHY_SERV_CELL_MEAS,
     RLC_DL_AM_ALL_PDU,
     RLC_UL_AM_ALL_PDU,
+    RLC_DL_CONFIG_LOG,
+    RLC_UL_CONFIG_LOG,
     ALL_PACKET_TYPE,
     ACTION_PDCP_CIPHER_DATA_PDU,
     NOP
@@ -68,6 +70,8 @@ static const std::unordered_map<std::string,
         {"phy_serv_cell_meas", ExtractorEnum::PHY_SERV_CELL_MEAS},
         {"rlc_dl_am_all_pdu", ExtractorEnum::RLC_DL_AM_ALL_PDU},
         {"rlc_ul_am_all_pdu", ExtractorEnum::RLC_UL_AM_ALL_PDU},
+        {"rlc_dl_config_log", ExtractorEnum::RLC_DL_CONFIG_LOG},
+        {"rlc_ul_config_log", ExtractorEnum::RLC_UL_CONFIG_LOG},
         {"all_packet_type", ExtractorEnum::ALL_PACKET_TYPE},
         {"action_pdcp_cipher_data_pdu",
          ExtractorEnum::ACTION_PDCP_CIPHER_DATA_PDU}
@@ -112,6 +116,10 @@ static void echo_packet_if_new(
 static void update_reorder_window(
     pt::ptree &&tree, Job &&job);
 static void echo_packet_if_match(
+    pt::ptree &&tree, Job &&job);
+static void extract_rlc_dl_config_log_packet(
+    pt::ptree &&tree, Job &&job);
+static void extract_rlc_ul_config_log_packet(
     pt::ptree &&tree, Job &&job);
 
 
@@ -345,6 +353,34 @@ void initialize_action_list_with_extractors() {
             );
             std::cerr << "Extractor enabled: "
                       << "LTE_RLC_UL_AM_All_PDU" << std::endl;
+            break;
+        case ExtractorEnum::RLC_DL_CONFIG_LOG:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_RLC_DL_Config_Log_Packet"
+                        );
+                    },
+                    extract_rlc_dl_config_log_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_RLC_DL_Config_Log_Packet" << std::endl;
+            break;
+        case ExtractorEnum::RLC_UL_CONFIG_LOG:
+            g_action_list.push_back(
+                {
+                    [] (const pt::ptree &tree, const Job &job) {
+                        return is_packet_having_type(
+                            tree, "LTE_RLC_UL_Config_Log_Packet"
+                        );
+                    },
+                    extract_rlc_ul_config_log_packet
+                }
+            );
+            std::cerr << "Extractor enabled: "
+                      << "LTE_RLC_UL_Config_Log_Packet" << std::endl;
             break;
         case ExtractorEnum::ALL_PACKET_TYPE:
             g_action_list.push_back(
@@ -2127,4 +2163,66 @@ static void echo_packet_if_match(
             job.job_num, []{}
         );
     }
+}
+
+/// Extract RLC_DL/UL_CONFIG_LOG_PACKET for the `Added/Modified RBs`
+/// field and the `Released RBs` field.
+static void extract_rlc_config_log_packet(
+    pt::ptree &&tree, Job &&job, const char *pkt_name) {
+    auto &&timestamp = get_packet_time_stamp(tree);
+    std::string result;
+
+    auto &&collect_rb_change_result
+        = [&tree, &result, &timestamp, pkt_name](const char *type) {
+        auto &&add_mod_rb_lists = locate_disjoint_subtree_with_attribute(
+            tree, "key", type
+        );
+        for (auto &&lists : add_mod_rb_lists) {
+            auto &&dicts = locate_disjoint_subtree_with_attribute(
+                *lists, "type", "dict"
+            );
+            for (auto &&dict : dicts) {
+                result += timestamp;
+                result += " $ ";
+                result += pkt_name;
+                result += " $ ";
+                bool first = true;
+                for (auto &&pair : dict->get_child("dict")) {
+                    if (!first) {
+                        result += ", ";
+                    } else {
+                        first = false;
+                    }
+                    result += pair.second.get<std::string>("<xmlattr>.key");
+                    result += ": ";
+                    result += pair.second.get_value<std::string>();
+                }
+                result += '\n';
+            }
+        }
+    };
+
+    collect_rb_change_result("Added/Modified RBs");
+    collect_rb_change_result("Released RBs");
+
+    insert_ordered_task(
+        job.job_num,
+        [result = std::move(result)] {
+            (*g_output) << result;
+        }
+    );
+}
+
+static void extract_rlc_dl_config_log_packet(
+    pt::ptree &&tree, Job &&job) {
+    extract_rlc_config_log_packet(
+        std::move(tree), std::move(job), "LTE_RLC_DL_Config_Log_Packet"
+    );
+}
+
+static void extract_rlc_ul_config_log_packet(
+    pt::ptree &&tree, Job &&job) {
+    extract_rlc_config_log_packet(
+        std::move(tree), std::move(job), "LTE_RLC_UL_Config_Log_Packet"
+    );
 }
