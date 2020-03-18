@@ -55,6 +55,9 @@ std::string g_latest_seen_ts_string;
 /// The packet sorter.
 std::unique_ptr<ReorderWindow> g_reorder_window;
 
+/// The regular expression object used to match against packet type.
+std::regex g_packet_type_regex;
+
 /// Sub threads call this function to propagate caught exception to the
 /// main thread. It changes the main state to Error and set the exception
 /// pointer.

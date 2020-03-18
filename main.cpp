@@ -142,8 +142,8 @@ static void parse_option(int argc, char **argv) {
             "Set the thread number of the extractors.\n")
         ("output,o", po::value<std::string>(),
             "Set the output file name (default to stdout).\n")
-        ("filter", po::value<std::string>(),
-            "Enable filter mode. "
+        ("range", po::value<std::string>(),
+            "Enable range mode. "
             "Set the timestamp range file path. Each line in the file "
             "should contains two unix timestamps separated by a space. "
             "The output only keeps packets that lie in the "
@@ -174,7 +174,7 @@ static void parse_option(int argc, char **argv) {
             "1. \"action_pdcp_cipher_data_pdu\" against "
             "\"pdcp_cipher_data_pdu.\"\n\n"
             "This option is mutially exclusive "
-            "with the \"filter\" mode.\n")
+            "with the \"range\" mode.\n")
         ("dedup",
             "Enable deduplicate mode.\n\n"
             "For each packet, it will be printed to the output if "
@@ -285,29 +285,29 @@ static void parse_option(int argc, char **argv) {
         g_output = std::move(file);
     }
 
-    // One and only one of the --filter, --extract or --dedup must be set.
-    auto mode_cnt = vm.count("filter") + vm.count("extract")
+    // One and only one of the --range, --extract or --dedup must be set.
+    auto mode_cnt = vm.count("range") + vm.count("extract")
                   + vm.count("dedup") + vm.count("reorder");
     if(mode_cnt == 0) {
         throw ArgumentError(
-            "None of the \"extract\", \"filter\",  \"dedup\" "
+            "None of the \"extract\", \"range\",  \"dedup\" "
             "and \"reorder\" mode is enabled."
         );
     } else if (mode_cnt > 1) {
         throw ArgumentError(
-            "Only one of the \"extract\", \"filter\", \"dedup\" "
+            "Only one of the \"extract\", \"range\", \"dedup\" "
             "and \"reorder\" mode can be enabled at a time."
         );
     }
 
     // If the range file is provided, read and store them to
     // the global vector.
-    if (vm.count("filter")) {
-        const auto &filename = vm["filter"].as<std::string>();
+    if (vm.count("range")) {
+        const auto &filename = vm["range"].as<std::string>();
         auto file = std::ifstream(filename);
         if (file.fail()) {
             throw ArgumentError(
-                "Failed to open filter file: "
+                "Failed to open range file: "
                 + ("\"" + filename + "\"")
             );
         }
@@ -315,7 +315,7 @@ static void parse_option(int argc, char **argv) {
         while (file >> left >> right) {
             g_valid_time_range.emplace_back(left, right);
         }
-        initialize_action_list_with_filter();
+        initialize_action_list_with_range();
 
     // If the extract mode is enabled, perpare the extractor list.
     } else if (vm.count("extract")) {

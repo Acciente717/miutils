@@ -111,6 +111,8 @@ static void echo_packet_if_new(
     pt::ptree &&tree, Job &&job);
 static void update_reorder_window(
     pt::ptree &&tree, Job &&job);
+static void echo_packet_if_match(
+    pt::ptree &&tree, Job &&job);
 
 
 /// The list storing all `ConditionalAction`s.
@@ -380,10 +382,10 @@ void initialize_action_list_with_extractors() {
     );
 }
 
-/// Initialize the `g_action_list` to do the filter work. Due to the same
-/// reason as `initialize_action_list_with_extractors()`, we must put
-/// a dummy function at the end of the list.
-void initialize_action_list_with_filter() {
+/// Initialize the `g_action_list` to do the range filter work. Due to
+/// the same reason as `initialize_action_list_with_extractors()`, we
+/// must put a dummy function at the end of the list.
+void initialize_action_list_with_range() {
     g_action_list.push_back(
         {
             [](const pt::ptree &tree, const Job &job) { return true; },
@@ -446,6 +448,18 @@ void initialize_action_list_to_reorder() {
     );
 }
 
+/// Return the `type_id` field in the packet.
+static std::string get_packet_type(const pt::ptree &tree) {
+    for (const auto &i : tree.get_child("dm_log_packet")) {
+        if (i.first == "pair") {
+            if (i.second.get("<xmlattr>.key", std::string()) == "type_id") {
+                return i.second.data();
+            }
+        }
+    }
+    return "";
+}
+
 /// Return true if and only if the tree has the following structure:
 /// <dm_log_packet>
 ///     ...
@@ -454,13 +468,8 @@ void initialize_action_list_to_reorder() {
 /// <dm_log_packet>
 static bool is_packet_having_type(
     const pt::ptree &tree, const std::string type_id) {
-    for (const auto &i : tree.get_child("dm_log_packet")) {
-        if (i.first == "pair") {
-            if (i.second.get("<xmlattr>.key", std::string()) == "type_id"
-                && i.second.data() == type_id) {
-                return true;
-            }
-        }
+    if (get_packet_type(tree) == type_id) {
+        return true;
     }
     return false;
 }
@@ -2118,4 +2127,21 @@ static void update_reorder_window(
             );
         }
     );
+}
+
+static void echo_packet_if_match(
+    pt::ptree &&tree, Job &&job) {
+    auto &&type = get_packet_type(tree);
+    if (std::regex_match(type, g_packet_type_regex)) {
+        insert_ordered_task(
+            job.job_num,
+            [result = std::move(job.xml_string)] {
+                (*g_output) << result << std::endl;
+            }
+        );
+    } else {
+        insert_ordered_task(
+            job.job_num, []{}
+        );
+    }
 }
