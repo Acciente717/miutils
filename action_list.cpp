@@ -382,9 +382,9 @@ void initialize_action_list_with_extractors() {
     );
 }
 
-/// Initialize the `g_action_list` to do the range filter work. Due to
-/// the same reason as `initialize_action_list_with_extractors()`, we
-/// must put a dummy function at the end of the list.
+/// Initialize the `g_action_list` to do the range filter work. Since the
+/// predicate function always return true, we do not need another dummy
+/// function at the end of the list.
 void initialize_action_list_with_range() {
     g_action_list.push_back(
         {
@@ -392,21 +392,11 @@ void initialize_action_list_with_range() {
             echo_packet_within_time_range
         }
     );
-    // Predicate: always true
-    // Action: do nothing
-    g_action_list.push_back(
-        {
-            [](const pt::ptree &tree, const Job &job) { return true; },
-            [](pt::ptree &&tree, Job &&job) {
-                insert_ordered_task(job.job_num, []{});
-            }
-        }
-    );
 }
 
-/// Initialize the `g_action_list` to do the deduplicate work. Due to the
-/// same reason as `initialize_action_list_with_extractors()`, we must put
-/// a dummy function at the end of the list.
+/// Initialize the `g_action_list` to do the deduplicate work. Since the
+/// predicate function always return true, we do not need another dummy
+/// function at the end of the list.
 void initialize_action_list_to_dedup() {
     g_action_list.push_back(
         {
@@ -414,36 +404,16 @@ void initialize_action_list_to_dedup() {
             echo_packet_if_new
         }
     );
-    // Predicate: always true
-    // Action: do nothing
-    g_action_list.push_back(
-        {
-            [](const pt::ptree &tree, const Job &job) { return true; },
-            [](pt::ptree &&tree, Job &&job) {
-                insert_ordered_task(job.job_num, []{});
-            }
-        }
-    );
 }
 
-/// Initialize the `g_action_list` to do the reorder work .Due to the
-/// same reason as `initialize_action_list_with_extractors()`, we must put
-/// a dummy function at the end of the list.
+/// Initialize the `g_action_list` to do the reorder work. Since the
+/// predicate function always return true, we do not need another dummy
+/// function at the end of the list.
 void initialize_action_list_to_reorder() {
     g_action_list.push_back(
         {
             [](const pt::ptree &tree, const Job &job) { return true; },
             update_reorder_window
-        }
-    );
-    // Predicate: always true
-    // Action: do nothing
-    g_action_list.push_back(
-        {
-            [](const pt::ptree &tree, const Job &job) { return true; },
-            [](pt::ptree &&tree, Job &&job) {
-                insert_ordered_task(job.job_num, []{});
-            }
         }
     );
 }
