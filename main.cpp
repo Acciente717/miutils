@@ -188,7 +188,12 @@ static void parse_option(int argc, char **argv) {
             "then it is a reverse pair. If the difference of the "
             "timestamp between P and Q is less than the given "
             "reorder window size, then Q is guaranteed to precede "
-            "P in the output.");
+            "P in the output.\n")
+        ("filter", po::value<std::string>(),
+            "Enable filter mode. Specify the regular expression to "
+            "match against the packet type string. The grammar of "
+            "regular expression should conform to ECMAScript. Only "
+            "matching packet will be kept to output.");
 
     /// All internal options. (Arguments are automatically transformed to
     /// the --input option.)
@@ -285,18 +290,19 @@ static void parse_option(int argc, char **argv) {
         g_output = std::move(file);
     }
 
-    // One and only one of the --range, --extract or --dedup must be set.
+    // One and only one of the running mode must be set.
     auto mode_cnt = vm.count("range") + vm.count("extract")
-                  + vm.count("dedup") + vm.count("reorder");
+                  + vm.count("dedup") + vm.count("reorder")
+                  + vm.count("filter");
     if(mode_cnt == 0) {
         throw ArgumentError(
-            "None of the \"extract\", \"range\",  \"dedup\" "
-            "and \"reorder\" mode is enabled."
+            "None of the \"extract\", \"range\",  \"dedup\", "
+            "\"filter\" and \"reorder\" mode is enabled."
         );
     } else if (mode_cnt > 1) {
         throw ArgumentError(
-            "Only one of the \"extract\", \"range\", \"dedup\" "
-            "and \"reorder\" mode can be enabled at a time."
+            "Only one of the \"extract\", \"range\", \"dedup\", "
+            "\"filter\" and \"reorder\" mode can be enabled at a time."
         );
     }
 
@@ -346,6 +352,18 @@ static void parse_option(int argc, char **argv) {
         auto size = vm["reorder"].as<long>();
         g_reorder_window.reset(new ReorderWindow(size));
         initialize_action_list_to_reorder();
+    /// If the filter mode is enabled, setup the regular expression for
+    /// matching against the packet type and initialize the action list
+    /// accordingly.
+    } else if (vm.count("filter")) {
+        auto &&pattern = vm["filter"].as<std::string>();
+        g_packet_type_regex = pattern;
+        initialize_action_list_to_filter();
+    } else {
+        throw ProgramBug(
+            "One and only one of the \"extract\", \"range\", \"dedup\", "
+            "\"filter\" and \"reorder\" mode should be set, but none is set."
+        );
     }
 }
 

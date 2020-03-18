@@ -47,4 +47,9 @@ extern void initialize_action_list_to_dedup();
 /// a dummy function at the end of the list.
 extern void initialize_action_list_to_reorder();
 
+/// Initialize the `g_action_list` to do the filter work. Since the
+/// predicate function always return true, we do not need another dummy
+/// function at the end of the list.
+extern void initialize_action_list_to_filter();
+
 #endif  // ACTION_LIST_HPP_

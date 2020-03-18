@@ -448,6 +448,19 @@ void initialize_action_list_to_reorder() {
     );
 }
 
+
+/// Initialize the `g_action_list` to do the filter work. Since the
+/// predicate function always return true, we do not need another dummy
+/// function at the end of the list.
+void initialize_action_list_to_filter() {
+    g_action_list.push_back(
+        {
+            [](const pt::ptree &tree, const Job &job) { return true; },
+            echo_packet_if_match
+        }
+    );
+}
+
 /// Return the `type_id` field in the packet.
 static std::string get_packet_type(const pt::ptree &tree) {
     for (const auto &i : tree.get_child("dm_log_packet")) {
