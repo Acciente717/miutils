@@ -119,6 +119,18 @@ static void smain() {
     }
 }
 
+/// Print the explanatory string of an exception. If the exception is nested,
+/// recurses to print the explanatory of the exception it holds.
+static void recursive_print_exception(const std::exception& e)
+{
+    std::cerr << e.what() << std::endl;
+    try {
+        std::rethrow_if_nested(e);
+    } catch(const std::exception& e) {
+        recursive_print_exception(e);
+    } catch(...) {}
+}
+
 /// Print the type of the exception and its message.
 template <typename T>
 void show_exception_message(T &e) {
@@ -126,7 +138,7 @@ void show_exception_message(T &e) {
     std::cerr << "Caught an exception of type ["
               << exception_type << "]" << std::endl;
     std::cerr << "Exception message:" << std::endl;
-    std::cerr << e.what() << std::endl;
+    recursive_print_exception(e);
 }
 
 /// Parse command line options and arguments, and set the global variables
@@ -392,6 +404,9 @@ int main(int argc, char **argv) {
         show_exception_message(e);
         return 1;
     } catch (boost::property_tree::ptree_bad_path &e) {
+        show_exception_message(e);
+        return 1;
+    } catch (InputError &e) {
         show_exception_message(e);
         return 1;
     } catch (boost::property_tree::ptree_bad_data &e) {

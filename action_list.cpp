@@ -2178,8 +2178,7 @@ static void extract_rlc_config_log_packet(
     );
     if_unlikely (config_reasons.size() != 1UL) {
         throw InputError(
-            "RLC_CONFIG_LOG_PACKET does not have a \"Reason\" field. "
-            "Line: " + std::to_string(job.start_line_number)
+            "RLC_CONFIG_LOG_PACKET does not have a \"Reason\" field."
         );
     }
     auto &&reason = config_reasons[0]->get_value<std::string>();

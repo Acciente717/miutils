@@ -238,24 +238,41 @@ static void smain_extractor() {
 /// Scan through the action list. Take according action when the first
 /// predicate function yields true.
 static void take_actions_on_input(Job job) {
-    // Convert the input string to an input stream and then
-    // build the property tree.
-    std::stringstream stream(job.xml_string);
-    pt::ptree tree;
-    pt::read_xml(stream, tree);
+    // Save the job information for exception message.
+    auto start_line_number = job.start_line_number;
+    auto end_line_number = job.end_line_number;
+    auto filename = job.file_name;
 
-    // Scan through the action list.
-    for (auto &i : g_action_list) {
-        // If we find a predicate function yields true on the
-        // input, take according action.
-        if (i.predicate(tree, job)) {
-            i.action(std::move(tree), std::move(job));
-            return;
+    try {
+        // Convert the input string to an input stream and then
+        // build the property tree.
+        std::stringstream stream(job.xml_string);
+        pt::ptree tree;
+        pt::read_xml(stream, tree);
+
+        // Scan through the action list.
+        for (auto &i : g_action_list) {
+            // If we find a predicate function yields true on the
+            // input, take according action.
+            if (i.predicate(tree, job)) {
+                i.action(std::move(tree), std::move(job));
+                return;
+            }
         }
-    }
 
-    throw ProgramBug(
-        "All predicate functions in the action list yield false. "
-        "The last predicate function MUST yield true."
-    );
+        throw ProgramBug(
+            "All predicate functions in the action list yield false. "
+            "The last predicate function MUST yield true."
+        );
+    // If the exception is an object of `std::exception`, append more
+    } catch (const std::exception &e) {
+        std::throw_with_nested(
+            InputError(
+                "File: " + filename + "\n"
+                + "Lines: [" + std::to_string(start_line_number)
+                + ", " + std::to_string(end_line_number)
+                + "]\n"
+            )
+        );
+    }
 }
