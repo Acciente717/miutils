@@ -2166,14 +2166,27 @@ static void echo_packet_if_match(
 }
 
 /// Extract RLC_DL/UL_CONFIG_LOG_PACKET for the `Added/Modified RBs`
-/// field and the `Released RBs` field.
+/// field, the `Released RBs` field, the `Active RBs` field and the
+/// `Reason` field.
 static void extract_rlc_config_log_packet(
     pt::ptree &&tree, Job &&job, const char *pkt_name) {
     auto &&timestamp = get_packet_time_stamp(tree);
     std::string result;
 
-    auto &&collect_rb_change_result
-        = [&tree, &result, &timestamp, pkt_name](const char *type) {
+    auto &&config_reasons = locate_disjoint_subtree_with_attribute(
+        tree, "key", "Reason"
+    );
+    if_unlikely (config_reasons.size() != 1UL) {
+        throw InputError(
+            "RLC_CONFIG_LOG_PACKET does not have a \"Reason\" field. "
+            "Line: " + std::to_string(job.start_line_number)
+        );
+    }
+    auto &&reason = config_reasons[0]->get_value<std::string>();
+    reason = "Reason: " + reason;
+
+    auto &&collect_rb_config_result
+        = [&tree, &result, &timestamp, pkt_name, &reason](const char *type) {
         auto &&add_mod_rb_lists = locate_disjoint_subtree_with_attribute(
             tree, "key", type
         );
@@ -2186,13 +2199,11 @@ static void extract_rlc_config_log_packet(
                 result += " $ ";
                 result += pkt_name;
                 result += " $ ";
-                bool first = true;
+                result += reason;
+                result += ", Category: ";
+                result += type;
                 for (auto &&pair : dict->get_child("dict")) {
-                    if (!first) {
-                        result += ", ";
-                    } else {
-                        first = false;
-                    }
+                    result += ", ";
                     result += pair.second.get<std::string>("<xmlattr>.key");
                     result += ": ";
                     result += pair.second.get_value<std::string>();
@@ -2202,8 +2213,9 @@ static void extract_rlc_config_log_packet(
         }
     };
 
-    collect_rb_change_result("Added/Modified RBs");
-    collect_rb_change_result("Released RBs");
+    collect_rb_config_result("Added/Modified RBs");
+    collect_rb_config_result("Released RBs");
+    collect_rb_config_result("Active RBs");
 
     insert_ordered_task(
         job.job_num,
