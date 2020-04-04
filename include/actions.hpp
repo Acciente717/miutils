@@ -1,6 +1,7 @@
 /* Copyright [2020] Zhiyao Ma */
 #ifndef ACTIONS_HPP_
 #define ACTIONS_HPP_
+#include <vector>
 #include <boost/property_tree/ptree.hpp>
 #include "extractor.hpp"
 
