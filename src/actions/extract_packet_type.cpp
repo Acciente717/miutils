@@ -4,8 +4,7 @@
 #include "in_order_executor.hpp"
 
 /// Print the type of the packet.
-void extract_packet_type(
-    pt::ptree &&tree, Job &&job) {
+void extract_packet_type(pt::ptree &&tree, Job &&job) {
     auto &&timestamp = get_packet_time_stamp(tree);
 
     std::string packet_type;

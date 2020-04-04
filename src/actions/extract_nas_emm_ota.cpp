@@ -13,8 +13,7 @@
 ///                       Tracking area update accept (0x49)" ... />
 ///     ...
 /// </dm_log_packet>
-void extract_nas_emm_ota_incoming_packet(
-    pt::ptree &&tree, Job &&job) {
+void extract_nas_emm_ota_incoming_packet(pt::ptree &&tree, Job &&job) {
     std::string timestamp = get_packet_time_stamp(tree);
 
     bool tracking_area_update_accept = false;

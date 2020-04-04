@@ -4,8 +4,7 @@
 #include "global_states.hpp"
 #include "in_order_executor.hpp"
 
-void update_reorder_window(
-    pt::ptree &&tree, Job &&job) {
+void update_reorder_window(pt::ptree &&tree, Job &&job) {
     auto &&timestamp = get_packet_time_stamp(tree);
 
     auto rawtime = timestamp_str2long_microsec_hack(timestamp);

@@ -64,15 +64,13 @@ static void extract_rlc_config_log_packet(
     );
 }
 
-void extract_rlc_dl_config_log_packet(
-    pt::ptree &&tree, Job &&job) {
+void extract_rlc_dl_config_log_packet(pt::ptree &&tree, Job &&job) {
     extract_rlc_config_log_packet(
         std::move(tree), std::move(job), "LTE_RLC_DL_Config_Log_Packet"
     );
 }
 
-void extract_rlc_ul_config_log_packet(
-    pt::ptree &&tree, Job &&job) {
+void extract_rlc_ul_config_log_packet(pt::ptree &&tree, Job &&job) {
     extract_rlc_config_log_packet(
         std::move(tree), std::move(job), "LTE_RLC_UL_Config_Log_Packet"
     );

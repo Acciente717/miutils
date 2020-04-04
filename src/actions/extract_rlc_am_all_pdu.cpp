@@ -5,8 +5,7 @@
 
 /// Extract RLCUL/RLCDL PDUs fields in
 /// LTE_RLC_UL_AM_All_PDU/LTE_RLC_DL_AM_All_PDU packets.
-static void extract_rlc_am_all_pdu(
-    pt::ptree &&tree, Job &&job, bool uplink) {
+static void extract_rlc_am_all_pdu(pt::ptree &&tree, Job &&job, bool uplink) {
     auto &&timestamp = get_packet_time_stamp(tree);
 
     const char *rlc_lists_tag;
@@ -73,12 +72,10 @@ static void extract_rlc_am_all_pdu(
     );
 }
 
-void extract_rlc_dl_am_all_pdu(
-    pt::ptree &&tree, Job &&job) {
+void extract_rlc_dl_am_all_pdu(pt::ptree &&tree, Job &&job) {
     extract_rlc_am_all_pdu(std::move(tree), std::move(job), false);
 }
 
-void extract_rlc_ul_am_all_pdu(
-    pt::ptree &&tree, Job &&job) {
+void extract_rlc_ul_am_all_pdu(pt::ptree &&tree, Job &&job) {
     extract_rlc_am_all_pdu(std::move(tree), std::move(job), true);
 }

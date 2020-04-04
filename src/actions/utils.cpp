@@ -20,8 +20,7 @@ std::string get_packet_type(const pt::ptree &tree) {
 ///     <pair key="type_id">$type_id</pair>
 ///     ...
 /// <dm_log_packet>
-bool is_packet_having_type(
-    const pt::ptree &tree, const std::string type_id) {
+bool is_packet_having_type(const pt::ptree &tree, const std::string type_id) {
     if (get_packet_type(tree) == type_id) {
         return true;
     }

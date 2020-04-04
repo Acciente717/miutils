@@ -13,8 +13,7 @@
 ///         <pair key="PDU Size">XXX</pair>
 ///         ...
 /// </dm_log_packet>
-void extract_pdcp_cipher_data_pdu_packet(
-    pt::ptree &&tree, Job &&job) {
+void extract_pdcp_cipher_data_pdu_packet(pt::ptree &&tree, Job &&job) {
     std::string timestamp = get_packet_time_stamp(tree);
 
     std::string err_msg;

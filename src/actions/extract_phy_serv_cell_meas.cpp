@@ -3,8 +3,7 @@
 #include "global_states.hpp"
 #include "in_order_executor.hpp"
 
-void extract_phy_serv_cell_measurement(
-    pt::ptree &&tree, Job &&job) {
+void extract_phy_serv_cell_measurement(pt::ptree &&tree, Job &&job) {
     auto &&timestamp = get_packet_time_stamp(tree);
 
     std::string result;

@@ -3,8 +3,7 @@
 #include "global_states.hpp"
 #include "in_order_executor.hpp"
 
-void echo_packet_if_match(
-    pt::ptree &&tree, Job &&job) {
+void echo_packet_if_match(pt::ptree &&tree, Job &&job) {
     auto &&type = get_packet_type(tree);
     if (std::regex_match(type, g_packet_type_regex)) {
         insert_ordered_task(

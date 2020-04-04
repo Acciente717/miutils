@@ -11,8 +11,7 @@
 ///         <pair key="Rach result"> XXX </pair>
 ///     ...
 /// </dm_log_packet>
-void extract_mac_rach_attempt_packet(
-    pt::ptree &&tree, Job &&job) {
+void extract_mac_rach_attempt_packet(pt::ptree &&tree, Job &&job) {
     auto &&timestamp = get_packet_time_stamp(tree);
 
     std::string results;

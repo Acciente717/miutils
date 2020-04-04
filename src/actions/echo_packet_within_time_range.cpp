@@ -7,8 +7,7 @@
 /// the ranges provided by the --range argument. If the current timestamp
 /// falls in any one of the time range, then the XML string is printed to
 /// the output file without any modification, otherwise silently do nothing.
-void echo_packet_within_time_range(
-    pt::ptree &&tree, Job &&job) {
+void echo_packet_within_time_range(pt::ptree &&tree, Job &&job) {
     auto &&timestamp = get_packet_time_stamp(tree);
 
     auto rawtime = timestamp_str2long(timestamp);

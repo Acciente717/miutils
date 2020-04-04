@@ -6,8 +6,7 @@
 
 /// Print the packet to the output file if the timestamp
 /// is greater or equal than that of the latest packet we have ever seen.
-void echo_packet_if_new(
-    pt::ptree &&tree, Job &&job) {
+void echo_packet_if_new(pt::ptree &&tree, Job &&job) {
     auto &&timestamp = get_packet_time_stamp(tree);
 
     auto rawtime = timestamp_str2long_microsec_hack(timestamp);
