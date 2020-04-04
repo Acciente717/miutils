@@ -5,8 +5,7 @@
 #include <vector>
 #include <functional>
 #include <boost/property_tree/ptree.hpp>
-
-namespace pt = boost::property_tree;
+#include "actions.hpp"
 
 class Job;
 
