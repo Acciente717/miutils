@@ -67,6 +67,45 @@ enum class MachineState {
     ClosingSubtree
 };
 
+class BufReader {
+    static const int BUFF_SIZE = 16384;
+    // Internal buffer.
+    char buf[READ_BUFF_SIZE];
+    // The index of the next character to be read.
+    int idx;
+    // The length of the buffered data.
+    int end;
+    // The associated input stream.
+    std::istream *input;
+
+ public:
+    BufReader() noexcept {
+        input = nullptr;
+        idx = end = 0;
+    }
+
+    void set_input(std::istream *input) noexcept {
+        this->input = input;
+    }
+
+    bool buffered_getchar(char &c) {
+        // Read more from the input file if the buffer runs out.
+        if (idx == end) {
+            input->read(buf, READ_BUFF_SIZE);
+            idx = 0;
+            end = input->gcount();
+
+            // Return false if we reach EOF.
+            if (end == 0) {
+                return false;
+            }
+        }
+
+        c = buf[idx++];
+        return true;
+    }
+};
+
 /// The entrance function of the (sub)thread running the lexical splitter.
 static void smain_splitter();
 
@@ -87,6 +126,8 @@ static long g_current_line_number = 1;
 /// The line number that corresponds to the start of the XML string
 /// currently being processed.
 static long g_start_line_number = 0;
+
+static BufReader g_buf_reader;
 
 /// Provide the input file name and start running the lexical splitter.
 void start_splitter() {
@@ -138,6 +179,9 @@ static void smain_splitter() {
 
         // The counter of read strings.
         long job_num = 0;
+
+        // Initialize the buffered reader to consume from the first file.
+        g_buf_reader.set_input(g_inputs[g_current_file_idx].get());
 
         // Continue to loop unless exiting prematurely.
         while (!g_early_terminating.load()) {
@@ -287,17 +331,8 @@ std::string next_ptree_string() {
     // The depth in the grammar tree.
     int depth = 0;
 
-    // If we have finished processing all the input files, return an empty
-    // string to indicate that.
-    if (g_current_file_idx == g_inputs.size()) {
-        return tree;
-    }
-
-    // The input stream we are currently working on.
-    auto &file = g_inputs[g_current_file_idx];
-
     // Skip characters until we see an "<".
-    while (buffered_getchar(c, *file) && c != '<') {
+    while (g_buf_reader.buffered_getchar(c) && c != '<') {
         if (c == '\n') ++g_current_line_number;
     }
 
@@ -345,7 +380,7 @@ std::string next_ptree_string() {
             // Read the next character in the file. If we fail to read the next
             // character, the file is corrupted. We defer to the extractor to
             // throw an exception.
-            if_unlikely (!buffered_getchar(c, *file)) {
+            if_unlikely (!g_buf_reader.buffered_getchar(c)) {
                 break;
             }
 
@@ -357,8 +392,13 @@ std::string next_ptree_string() {
 
     // Otherwise, we have finished this file. Go to the next.
     } else {
-        ++g_current_file_idx;
+        // If we have finished processing all input files, return an empty
+        // string. `tree` is empty here.
+        if (++g_current_file_idx == g_inputs.size()) {
+            return tree;
+        }
         g_current_line_number = 1;
+        g_buf_reader.set_input(g_inputs[g_current_file_idx].get());
         return next_ptree_string();
     }
 }
