@@ -3,3 +3,4 @@ xmlparser
 obj
 .vscode
 misc
+.DS_Store
