@@ -35,7 +35,7 @@ $(BIN_DIR):
 .PHONY: install
 install:
 	rm -rf /usr/local/bin/xmlparser 2>/dev/null
-	ln -s $$(pwd)/$(BIN_DIR)/xmlparser /usr/local/bin/xmlparser
+	cp $$(pwd)/$(BIN_DIR)/xmlparser /usr/local/bin
 
 .PHONY: uninstall
 uninstall:
