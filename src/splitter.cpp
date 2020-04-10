@@ -32,6 +32,11 @@
 #include <thread>
 #include <atomic>
 
+#ifdef ACCEL_AVAIL
+#include <emmintrin.h>
+#include <nmmintrin.h>
+#endif
+
 /// The states of the finite state machine.
 enum class MachineState {
     /// The starting state. It means that we are not in the middle of a
@@ -67,6 +72,115 @@ enum class MachineState {
     ClosingSubtree
 };
 
+/// A buffered reader, which maintains an internal buffer of the input stream
+/// and returns either a single character or a chunk of them upon query.
+class BufReader {
+    static const int BUFF_SIZE = 16384;
+    // Internal buffer.
+    char buf[BUFF_SIZE];
+    // The index of the next character to be read.
+    int idx;
+    // The length of the buffered data.
+    int end;
+    // The associated input stream.
+    std::istream *input;
+
+ public:
+    BufReader() noexcept {
+        input = nullptr;
+        idx = end = 0;
+    }
+
+    /// Set the input stream. The internal buffer will NOT be cleared.
+    void set_input(std::istream *input) noexcept {
+        this->input = input;
+    }
+
+    /// Get a single character. Return `true` if successful, `false` if
+    /// the input stream reaches EOF and the internal buffer has been
+    /// consumed.
+    bool buffered_getchar(char &c) {
+        // Read more from the input file if the buffer runs out.
+        if (idx == end) {
+            input->read(buf, BUFF_SIZE);
+            idx = 0;
+            end = input->gcount();
+
+            // Return false if we reach EOF.
+            if (end == 0) {
+                return false;
+            }
+        }
+
+        c = buf[idx++];
+        return true;
+    }
+
+#ifdef ACCEL_AVAIL
+    /// Get a chunk of characters, whose length is equals to the width of XMM
+    /// registers in bytes, and also the number of '\n' characters in this
+    /// chunk.
+    ///
+    /// `chunk` and `line_cnt` are valid after return only if the return value
+    /// is `true.`
+    ///
+    /// Return `true` if and only if none of '<', '>' and '/' occur in the
+    /// chunk.
+    bool buffered_getchunk(char chunk[XMM_WIDTH + 1], int &line_cnt) {
+        // No enough buffered chars to put into XMM reg.
+        if (end - idx < XMM_WIDTH) {
+            return false;
+        }
+
+        // Broadcast each of the '<', '>', '/' and '\n' to a whole
+        // XMM register.
+        static const auto xmm_lt = _mm_set1_epi8('<');
+        static const auto xmm_gt = _mm_set1_epi8('>');
+        static const auto xmm_slash = _mm_set1_epi8('/');
+        static const auto xmm_lf = _mm_set1_epi8('\n');
+
+        // Compare each character in the chunk with the above four characters.
+        // Save the or-ed result of the equality comparison with '<', '>' and
+        // '/' to a bitmap called `lt_gt_slash_match_mask`.
+        // Save the result of the equality comparison with '\n' to a bitmap
+        // called `lt_gt_slash_match_mask`.
+        //
+        // The sequence of the following intrinsic function calls are meant to
+        // hint the compiler to generate superscalar CPU friendly machine code.
+        auto xmm_chunk = _mm_loadu_si128(
+            reinterpret_cast<const __m128i *>(&buf[idx])
+        );
+        auto xmm_lt_match = _mm_cmpeq_epi8(xmm_chunk, xmm_lt);
+        auto xmm_gt_match = _mm_cmpeq_epi8(xmm_chunk, xmm_gt);
+        auto lt_match_mask = _mm_movemask_epi8(xmm_lt_match);
+        auto gt_match_mask = _mm_movemask_epi8(xmm_gt_match);
+        auto xmm_slash_match = _mm_cmpeq_epi8(xmm_chunk, xmm_slash);
+        auto xmm_lf_match = _mm_cmpeq_epi8(xmm_chunk, xmm_lf);
+        auto lt_gt_match_mask = lt_match_mask | gt_match_mask;
+        auto slash_match_mask = _mm_movemask_epi8(xmm_slash_match);
+        auto lf_match_mask = _mm_movemask_epi8(xmm_lf_match);
+        auto lt_gt_slash_match_mask = lt_gt_match_mask | slash_match_mask;
+
+        // If any of the bit is set, then there are at least one '<', '>' or
+        // '/' in the chunk.
+        if (lt_gt_slash_match_mask != 0) {
+            return false;
+        }
+
+        // Count the 1's bit, which is equal to the number of '\n'
+        // in the chunk.
+        auto lf_cnt = _mm_popcnt_u32(lf_match_mask);
+
+        memcpy(chunk, &buf[idx], XMM_WIDTH);
+        chunk[XMM_WIDTH] = 0;
+        idx += XMM_WIDTH;
+        line_cnt = lf_cnt;
+
+        return true;
+    }
+#endif
+};
+
 /// The entrance function of the (sub)thread running the lexical splitter.
 static void smain_splitter();
 
@@ -87,6 +201,8 @@ static long g_current_line_number = 1;
 /// The line number that corresponds to the start of the XML string
 /// currently being processed.
 static long g_start_line_number = 0;
+
+static BufReader g_buf_reader;
 
 /// Provide the input file name and start running the lexical splitter.
 void start_splitter() {
@@ -139,6 +255,9 @@ static void smain_splitter() {
         // The counter of read strings.
         long job_num = 0;
 
+        // Initialize the buffered reader to consume from the first file.
+        g_buf_reader.set_input(g_inputs[g_current_file_idx].get());
+
         // Continue to loop unless exiting prematurely.
         while (!g_early_terminating.load()) {
             // Get a piece of the file in the form
@@ -185,23 +304,28 @@ inline static void machine_action_angle_closed(MachineState &state,
 }
 
 /// Actions that should be taken on AngleOpen state.
-inline static void machine_action_angle_open(MachineState &state,
-                                      int &depth,
-                                      char c) {
+inline static void machine_action_angle_open(
+#ifdef ACCEL_AVAIL
+    MachineState &state, int &depth, char c, bool &sse_accel) {
+#else
+    MachineState &state, int &depth, char c) {
+#endif
     switch (c) {
     case '/':
         state = MachineState::ClosingSubtree;
         break;
     default:
         state = MachineState::CreatingSubtree;
+#ifdef ACCEL_AVAIL
+        sse_accel = true;
+#endif
         break;
     }
 }
 
 /// Actions that should be taken on CreatingField state.
-inline static void machine_action_creating_field(MachineState &state,
-                                          int &depth,
-                                          char c) {
+inline static void machine_action_creating_field(
+    MachineState &state, int &depth, char c) {
     switch (c) {
     case '>':
         state = MachineState::AngleClosed;
@@ -213,9 +337,8 @@ inline static void machine_action_creating_field(MachineState &state,
 }
 
 /// Actions that should be taken on CreatingSubtree state.
-inline static void machine_action_creating_subtree(MachineState &state,
-                                            int &depth,
-                                            char c) {
+inline static void machine_action_creating_subtree(
+    MachineState &state, int &depth, char c) {
     switch (c) {
     case '>':
         state = MachineState::AngleClosed;
@@ -230,9 +353,8 @@ inline static void machine_action_creating_subtree(MachineState &state,
 }
 
 /// Actions that should be taken on ClosingSubtree state.
-inline static void machine_action_closing_subtree(MachineState &state,
-                                           int &depth,
-                                           char c) {
+inline static void machine_action_closing_subtree(
+    MachineState &state, int &depth, char c) {
     switch (c) {
     case '>':
         state = MachineState::AngleClosed;
@@ -287,17 +409,8 @@ std::string next_ptree_string() {
     // The depth in the grammar tree.
     int depth = 0;
 
-    // If we have finished processing all the input files, return an empty
-    // string to indicate that.
-    if (g_current_file_idx == g_inputs.size()) {
-        return tree;
-    }
-
-    // The input stream we are currently working on.
-    auto &file = g_inputs[g_current_file_idx];
-
     // Skip characters until we see an "<".
-    while (buffered_getchar(c, *file) && c != '<') {
+    while (g_buf_reader.buffered_getchar(c) && c != '<') {
         if (c == '\n') ++g_current_line_number;
     }
 
@@ -313,6 +426,10 @@ std::string next_ptree_string() {
         // Update starting line number of current XML string.
         g_start_line_number = g_current_line_number;
 
+#ifdef ACCEL_AVAIL
+        bool sse_accel = false;
+#endif
+
         // Run the finite state machine.
         while (true) {
             // Store each character we see.
@@ -324,7 +441,11 @@ std::string next_ptree_string() {
                 machine_action_angle_closed(state, depth, c);
                 break;
             case MachineState::AngleOpen:
+#ifdef ACCEL_AVAIL
+                machine_action_angle_open(state, depth, c, sse_accel);
+#else
                 machine_action_angle_open(state, depth, c);
+#endif
                 break;
             case MachineState::CreatingField:
                 machine_action_creating_field(state, depth, c);
@@ -342,10 +463,48 @@ std::string next_ptree_string() {
                 break;
             }
 
+#ifdef ACCEL_AVAIL
+            char chunk[XMM_WIDTH + 1];
+            int line_cnt;
+
+            // If the SSE acceleration flag is turned on, try reading a chunk
+            // of 16 characters at a time. The attempt may fail in two ways:
+            // 1. The number of characters left in the buffered reader is less
+            // than 16 bytes.
+            // 2. The consecutive 16 characters contain at least one of the
+            // '<', '>', '/'.
+            //
+            // This flag will be turned on when we enter the creation of a tag,
+            // i.e. "<$tag ...". Technically, this flag is set to `true` when
+            // the state of DFA switches from `AngleOpen` to `CreatingSubtree`.
+            //
+            // In other words, SSE acceleration is only turned on for the
+            // creating of open tags. Such choice is based on the
+            // observation that we always have long open tags which looks like
+            // "<$tag attr1=val1 attr2=val2 attr3=val3 attr4=val4 ...>".
+            //
+            // One may choose to also turn on SSE acceleration for reading the
+            // value of a node, but in the data it is seldom large, i.e. it is
+            // rare to see "<$tag>a very long string here</$tag>".
+            if (sse_accel) {
+                // If the attempt to get a chunk is successful, append them to
+                // the XML string and increase line number counter accordingly.
+                while (g_buf_reader.buffered_getchunk(chunk, line_cnt)) {
+                    tree += chunk;
+                    g_current_line_number += line_cnt;
+                }
+
+                // The last attempt is unsuccessful. Turn off the SSE
+                // acceleration temporarity and wait for the next time when we
+                // enter the "<$tag ...".
+                sse_accel = false;
+            }
+#endif
+
             // Read the next character in the file. If we fail to read the next
             // character, the file is corrupted. We defer to the extractor to
             // throw an exception.
-            if_unlikely (!buffered_getchar(c, *file)) {
+            if_unlikely (!g_buf_reader.buffered_getchar(c)) {
                 break;
             }
 
@@ -357,8 +516,13 @@ std::string next_ptree_string() {
 
     // Otherwise, we have finished this file. Go to the next.
     } else {
-        ++g_current_file_idx;
+        // If we have finished processing all input files, return an empty
+        // string. `tree` is empty here.
+        if (++g_current_file_idx == g_inputs.size()) {
+            return tree;
+        }
         g_current_line_number = 1;
+        g_buf_reader.set_input(g_inputs[g_current_file_idx].get());
         return next_ptree_string();
     }
 }
