@@ -148,7 +148,7 @@ class BufReader {
         // The sequence of the following intrinsic function calls are meant to
         // hint the compiler to generate superscalar CPU friendly machine code.
         auto xmm_chunk = _mm_loadu_si128(
-            reinterpret_cast<const __m128i_u *>(&buf[idx])
+            reinterpret_cast<const __m128i *>(&buf[idx])
         );
         auto xmm_lt_match = _mm_cmpeq_epi8(xmm_chunk, xmm_lt);
         auto xmm_gt_match = _mm_cmpeq_epi8(xmm_chunk, xmm_gt);
