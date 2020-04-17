@@ -2,6 +2,9 @@ CXX := g++
 CXXFLAGS := -std=c++14 -flto -march=native -O2
 CXXLIBS := -lboost_program_options -lpthread
 
+TARGET_NAME := miutils
+INSTALL_DIR := /usr/local/bin
+
 BIN_DIR := bin
 SRC_DIR := src
 INC_DIR := include
@@ -14,7 +17,7 @@ HEADERS := $(wildcard $(INC_DIR)/*.hpp)
 SRC_OBJS := $(subst $(SRC_DIR),$(SRC_OBJ_DIR),$(patsubst %.cpp,%.o,$(SRC_SRCS)))
 ACTION_OBJS := $(subst $(ACTION_DIR),$(ACTION_OBJ_DIR),$(patsubst %.cpp,%.o,$(ACTION_SRCS)))
 
-$(BIN_DIR)/xmlparser: $(SRC_OBJS) $(ACTION_OBJS) | $(BIN_DIR)
+$(BIN_DIR)/$(TARGET_NAME): $(SRC_OBJS) $(ACTION_OBJS) | $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRC_OBJS) $(ACTION_OBJS) $(CXXLIBS)
 
 $(ACTION_OBJ_DIR)/%.o: $(ACTION_DIR)/%.cpp $(INC_DIR)/*.hpp | $(ACTION_OBJ_DIR)
@@ -34,12 +37,12 @@ $(BIN_DIR):
 
 .PHONY: install
 install:
-	rm -rf /usr/local/bin/xmlparser 2>/dev/null
-	cp $$(pwd)/$(BIN_DIR)/xmlparser /usr/local/bin
+	rm -rf $(INSTALL_DIR)/$(TARGET_NAME) 2>/dev/null
+	cp $(BIN_DIR)/$(TARGET_NAME) /usr/local/bin
 
 .PHONY: uninstall
 uninstall:
-	rm -rf /usr/local/bin/xmlparser 2>/dev/null
+	rm -rf $(INSTALL_DIR)/$(TARGET_NAME) 2>/dev/null
 
 .PHONY: clean
 clean:
