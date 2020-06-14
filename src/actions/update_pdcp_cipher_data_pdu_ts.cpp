@@ -72,8 +72,9 @@ void update_pdcp_cipher_data_pdu_packet_timestamp(
         );
     case PDCPDirection::Uplink:
         // Search if there is any uplink pdcp data packets.
-        // Note that we only treat packets with size=1412 as data packets,
-        // since upper TCP connection is sending at full speed.
+        // Note that we only treat packets with size=1412 or 1402 or 1362
+        // as data packets, since upper TCP connection is sending at
+        // full speed.
         {
             bool uplink_pdcp_data_packet_present = false;
             auto &&pdu_packet_list = locate_subtree_with_attribute(
@@ -84,7 +85,9 @@ void update_pdcp_cipher_data_pdu_packet_timestamp(
                     *pdu_packets, "key", "PDU Size"
                 );
                 for (auto size : sizes) {
-                    if (size->data() == "1412") {
+                    auto &&size_str = size->data();
+                    if (size_str == "1412" || size_str == "1362"
+                        || size_str == "1402") {
                         uplink_pdcp_data_packet_present = true;
                         break;
                     }
@@ -109,8 +112,9 @@ void update_pdcp_cipher_data_pdu_packet_timestamp(
         break;
     case PDCPDirection::Downlink:
         // Search if there is any downlink pdcp data packets.
-        // Note that we only treat packets with size=1412 as data packets,
-        // since upper TCP connection is sending at full speed.
+        // Note that we only treat packets with size=1412 or 1402 or 1362
+        // as data packets, since upper TCP connection is sending at
+        // full speed.
         {
             bool downlink_pdcp_data_packet_present = false;
             auto &&pdu_packet_list = locate_subtree_with_attribute(
@@ -121,7 +125,9 @@ void update_pdcp_cipher_data_pdu_packet_timestamp(
                     *pdu_packets, "key", "PDU Size"
                 );
                 for (auto size : sizes) {
-                    if (size->data() == "1412") {
+                    auto &&size_str = size->data();
+                    if (size_str == "1412" || size_str == "1362"
+                        || size_str == "1402") {
                         downlink_pdcp_data_packet_present = true;
                         break;
                     }
